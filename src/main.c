@@ -4,7 +4,9 @@
 #include <time.h>
 
 #include "raylib.h"
+#include "ecs.h"
 #include "rng.h"
+#include "spawn.h"
 
 #define DEFAULT_WIDTH  1280
 #define DEFAULT_HEIGHT  720
@@ -177,6 +179,11 @@ int main(int argc, char **argv)
         seed = (unsigned int)time(NULL);
     }
 
+    World *world = ecs_world_alloc();
+    if (world == NULL) {
+        return 1;
+    }
+
     unsigned int flags = FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI;
     if (cfg.vsync) {
         flags |= FLAG_VSYNC_HINT;
@@ -186,6 +193,7 @@ int main(int argc, char **argv)
     InitWindow(cfg.width, cfg.height, "Screensaver ECS - estrellas y sistemas solares");
     if (!IsWindowReady()) {
         fprintf(stderr, "Error: no se pudo crear la ventana.\n");
+        ecs_world_free(world);
         return 1;
     }
     if (!cfg.vsync) {
@@ -201,6 +209,14 @@ int main(int argc, char **argv)
     Rng rng;
     rng_seed(&rng, seed);
 
+    StarField sf;
+    starfield_init(&sf, cfg.stars, (float)GetScreenWidth(), (float)GetScreenHeight());
+    
+    /* Creamos algunas estrellas estáticas de prueba */
+    for (int i = 0; i < sf.targetStars; ++i) {
+        spawn_star(world, &rng, sf.screenW, sf.screenH);
+    }
+
     const Color bg = { 6, 8, 18, 255 };
 
     while (!WindowShouldClose()) {
@@ -215,5 +231,6 @@ int main(int argc, char **argv)
     }
 
     CloseWindow();
+    ecs_world_free(world);
     return 0;
 }
