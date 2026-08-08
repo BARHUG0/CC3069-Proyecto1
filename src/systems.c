@@ -2,6 +2,9 @@
 #include <math.h>
 #include "raylib.h"
 
+#define FADE_IN_SECS  0.8f
+#define FADE_OUT_SECS 1.2f
+
 static float clamp01(float v)
 {
     if (v < 0.0f) return 0.0f;
@@ -15,10 +18,53 @@ static unsigned char alpha8(float a)
     return (unsigned char)v;
 }
 
+void sys_twinkle(World *w, float t)
+{
+    const uint32_t n    = w->highWater;
+    const uint32_t want = C_RENDER | C_TWINKLE;
+
+    for (uint32_t e = 0; e < n; ++e) {
+        if ((w->mask[e] & want) != want) {
+            continue;
+        }
+        w->alpha[e] = clamp01(w->twBase[e] +
+                              w->twAmp[e] * sinf(w->twFreq[e] * t + w->twPhase[e]));
+    }
+}
+
+int sys_lifetime(World *w, float dt)
+{
+    const uint32_t n = w->highWater;
+    int killed = 0;
+
+    for (uint32_t e = 0; e < n; ++e) {
+        if ((w->mask[e] & C_LIFE) == 0u) {
+            continue;
+        }
+
+        const float life = w->life[e] - dt;
+        if (life <= 0.0f) {
+            ecs_destroy(w, e);
+            killed++;
+            continue;
+        }
+        w->life[e] = life;
+
+        /* Sobre trapezoidal: entra en FADE_IN_SECS, sale en FADE_OUT_SECS. */
+        const float age = w->lifeMax[e] - life;
+        float env = 1.0f;
+        if (age < FADE_IN_SECS)   env  = age / FADE_IN_SECS;
+        if (life < FADE_OUT_SECS) env *= life / FADE_OUT_SECS;
+
+        w->alpha[e] *= env;
+    }
+    return killed;
+}
+
 static void render_starfield(const World *w)
 {
     const uint32_t n = w->highWater;
-    const uint32_t want = C_RENDER; /* No exigimos TWINKLE todavía para pintar las estáticas */
+    const uint32_t want = C_RENDER | C_TWINKLE;
 
     BeginBlendMode(BLEND_ADDITIVE);
     for (uint32_t e = 0; e < n; ++e) {
@@ -49,7 +95,6 @@ static void render_starfield(const World *w)
 
 void sys_render(const World *w, const SolarSystems *ss, int showRings)
 {
-    /* Ignoramos los parámetros no usados por ahora */
     (void)ss;
     (void)showRings;
     render_starfield(w);

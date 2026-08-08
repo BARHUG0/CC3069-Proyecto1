@@ -215,19 +215,20 @@ int main(int argc, char **argv)
 
     StarField sf;
     starfield_init(&sf, cfg.stars, (float)GetScreenWidth(), (float)GetScreenHeight());
-    
-    /* Creamos algunas estrellas estáticas de prueba */
-    for (int i = 0; i < sf.targetStars; ++i) {
-        spawn_star(world, &rng, sf.screenW, sf.screenH);
-    }
 
     const Color bg = { 6, 8, 18, 255 };
+    float simTime = 0.0f;
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         if (dt > 0.05f) {
             dt = 0.05f;
         }
+
+        simTime += dt;
+        sys_spawn_stars(world, &sf, &rng, dt);
+        sys_twinkle(world, simTime);
+        sf.liveStars -= sys_lifetime(world, dt);
 
         BeginDrawing();
         ClearBackground(bg);

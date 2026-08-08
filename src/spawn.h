@@ -15,5 +15,6 @@ typedef struct StarField {
 
 void starfield_init(StarField *sf, int targetStars, float screenW, float screenH);
 Entity spawn_star(World *w, Rng *rng, float screenW, float screenH);
+int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt);
 
 #endif /* SPAWN_H */
