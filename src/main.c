@@ -7,6 +7,7 @@
 #include "ecs.h"
 #include "rng.h"
 #include "spawn.h"
+#include "systems.h"
 
 #define DEFAULT_WIDTH  1280
 #define DEFAULT_HEIGHT  720
@@ -184,6 +185,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* Dummy struct for SolarSystems for now */
+    SolarSystems *ss = (SolarSystems *)calloc(1, sizeof(SolarSystems));
+
     unsigned int flags = FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI;
     if (cfg.vsync) {
         flags |= FLAG_VSYNC_HINT;
@@ -227,10 +231,12 @@ int main(int argc, char **argv)
 
         BeginDrawing();
         ClearBackground(bg);
+        sys_render(world, ss, 0);
         EndDrawing();
     }
 
     CloseWindow();
+    free(ss);
     ecs_world_free(world);
     return 0;
 }
