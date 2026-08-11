@@ -86,9 +86,24 @@ void sys_twinkle(World *w, float t)
 
 void sys_orbit(World *w, float dt)
 {
-    (void)w;
-    (void)dt;
-    /* Implementación pospuesta para el Commit 10 */
+    const uint32_t n    = w->highWater;
+    const uint32_t want = C_ORBIT | C_POS;
+
+    for (uint32_t e = 0; e < n; ++e) {
+        if ((w->mask[e] & want) != want) {
+            continue;
+        }
+        float a = w->oang[e] + w->ospd[e] * dt;
+
+        /* Envolver el angulo evita que crezca sin limite: con float, un angulo
+         * grande pierde precision y las orbitas empiezan a saltar. */
+        if (a > 6.2831853f)  a -= 6.2831853f;
+        if (a < 0.0f)        a += 6.2831853f;
+
+        w->oang[e] = a;
+        w->px[e]   = w->ocx[e] + w->orx[e] * cosf(a);
+        w->py[e]   = w->ocy[e] + w->ory[e] * sinf(a);
+    }
 }
 
 int sys_lifetime(World *w, float dt)

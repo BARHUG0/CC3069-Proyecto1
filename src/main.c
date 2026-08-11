@@ -347,7 +347,7 @@ int main(int argc, char **argv)
             simTime += dt;
             sys_spawn_stars(world, &sf, &rng, dt);
             sys_twinkle(world, simTime);
-            /* sys_orbit(world, dt); pospuesto al Commit 10 */
+            sys_orbit(world, dt);
             sf.liveStars -= sys_lifetime(world, dt);
 
             updateAccum += GetTime() - t0;
