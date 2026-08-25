@@ -16,6 +16,14 @@
  * de sus planetas, px/py de su sol) para que sys_orbit reproyecte sobre el
  * centro ya actualizado del fotograma. sys_trails va despues de sys_orbit:
  * muestrea las posiciones ya definitivas del fotograma.
+ *
+ * sys_drift usa el mismo modelo que sys_orbit (angulo + radio + velocidad
+ * angular alrededor de un centro fijo), aplicado un nivel arriba: en vez del
+ * centro de un planeta orbitando su sol, es el centro de un sistema entero
+ * orbitando una de las dos anclas compartidas en ss->anchorX/Y (que ancla le
+ * toca a cada sistema se decide al azar en el spawn, ss->anchor[s], ver
+ * spawn.h). Por eso la orbita queda contenida por construccion y no necesita envolver
+ * bordes.
  */
 #ifndef SYSTEMS_H
 #define SYSTEMS_H
@@ -40,11 +48,11 @@ void starfield_init(StarField *sf, int targetStars, float screenW, float screenH
 /* Crea estrellas hasta acercarse a targetStars. Devuelve cuantas creo. */
 int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt);
 
-/* Traslada cada sistema solar y lo envuelve en los bordes de pantalla (sale
- * por completo por un lado, reaparece por el opuesto). Escribe px/py del sol,
- * ocx/ocy de sus planetas y los centros de anillo en ss: todo lo que depende
- * del centro del sistema queda al dia antes de que sys_orbit reproyecte. */
-void sys_drift(World *w, SolarSystems *ss, float screenW, float screenH, float dt);
+/* Hace girar cada sistema solar alrededor de su anclaje (ss->anchorX/Y[a]) y
+ * propaga el nuevo centro a px/py del sol, ocx/ocy de sus planetas y los
+ * centros de anillo: todo lo que depende del centro del sistema queda al dia
+ * antes de que sys_orbit reproyecte. */
+void sys_drift(World *w, SolarSystems *ss, float dt);
 
 /* --- estelas -------------------------------------------------------------
  * Estado global (como StarField): no es un dato por entidad, asi que vive
@@ -57,7 +65,7 @@ void sys_drift(World *w, SolarSystems *ss, float screenW, float screenH, float d
  * color se copia por valor una vez en trails_init (ver ecs.h: copiar en vez
  * de saltar a leer otro arreglo dentro del bucle).
  */
-#define TRAIL_LEN        96     /* muestras por cuerpo (~4 s a TRAIL_HZ)   */
+#define TRAIL_LEN        120    /* muestras por cuerpo (~5 s a TRAIL_HZ)   */
 #define TRAIL_HZ         24.0f  /* muestreo fijo, independiente del FPS    */
 #define MAX_TRAIL_BODIES (MAX_SYSTEMS + MAX_PLANETS_TOTAL)
 
@@ -74,16 +82,10 @@ typedef struct TrailBuffer {
     int   head;  /* proxima rebanada a escribir                */
     int   fill;  /* rebanadas validas, satura en TRAIL_LEN      */
     float accum; /* fraccion de tick de muestreo pendiente      */
-
-    /* Tamano de pantalla vigente: solo lo usa el guard de costura al
-     * dibujar, para distinguir un paso normal de un salto por wrap. */
-    float screenW;
-    float screenH;
 } TrailBuffer;
 
 /* Recorre sun[] y ringEntity[] de ss una vez y arma la tabla de cuerpos. */
-void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss,
-                 float screenW, float screenH);
+void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss);
 
 /* Empuja una rebanada de posiciones cuando toca (a TRAIL_HZ). */
 void sys_trails(const World *w, TrailBuffer *tb, float dt);

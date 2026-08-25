@@ -40,10 +40,23 @@ typedef struct SolarSystems {
 
     int totalPlanets;
 
-    /* --- deriva: el sistema completo se traslada y envuelve en los bordes -- */
-    float vx[MAX_SYSTEMS];  /* px/s */
-    float vy[MAX_SYSTEMS];  /* px/s */
-    float ext[MAX_SYSTEMS]; /* radio envolvente (anillo exterior + halo), margen del wrap */
+    /* --- deriva: dos anclas fijas, una por mitad de pantalla, con el mismo
+     * modelo (angulo + radio + velocidad angular) que ya usan los planetas
+     * alrededor de su sol, aplicado un nivel arriba. Que ancla le toca a cada
+     * sistema se decide con un reparto barajado en el spawn (mitad y mitad,
+     * orden al azar via Fisher-Yates — no un volado independiente por
+     * sistema, que con N chico puede caer muy desparejo por puro azar), y no
+     * por su columna en la rejilla: un sistema que nacio a la derecha puede
+     * terminar orbitando la mitad izquierda igual que uno que nacio ahi. Por
+     * diseno cada sistema se queda dentro de la mitad de SU ancla (el radio
+     * maximo que cabe sin salirse de una mitad no llega a cruzar el centro)
+     * — eso es justamente "un origen por mitad", no un defecto a corregir. */
+    float anchorX[2];
+    float anchorY[2];
+    int   anchor[MAX_SYSTEMS];  /* 0 o 1: que ancla le toca, al azar    */
+    float orbRad[MAX_SYSTEMS];  /* radio de orbita alrededor del ancla */
+    float orbAng[MAX_SYSTEMS];  /* angulo actual (rad)                 */
+    float orbSpd[MAX_SYSTEMS];  /* velocidad angular (rad/s), con signo */
 } SolarSystems;
 
 /* Crea una estrella de fondo efimera (C_POS|C_RENDER|C_TWINKLE|C_LIFE).

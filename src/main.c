@@ -186,7 +186,7 @@ static void build_scene(World *w, SolarSystems *ss, StarField *sf, TrailBuffer *
     ecs_reset(w);
     spawn_solar_systems(w, ss, rng, cfg->systems, (float)screenW, (float)screenH);
     starfield_init(sf, cfg->stars, (float)screenW, (float)screenH);
-    trails_init(tb, w, ss, (float)screenW, (float)screenH);
+    trails_init(tb, w, ss);
 }
 
 static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf,
@@ -365,7 +365,7 @@ int main(int argc, char **argv)
 
             simTime += dt;
             sys_spawn_stars(world, &sf, &rng, dt);
-            sys_drift(world, ss, (float)curW, (float)curH, dt);
+            sys_drift(world, ss, dt);
             sys_twinkle(world, simTime);
             sys_orbit(world, dt);
             sys_trails(world, tb, dt);
@@ -378,6 +378,7 @@ int main(int argc, char **argv)
         BeginDrawing();
         ClearBackground(bg);
         sys_render(world, ss, tb, showRings, showTrails);
+        DrawFPS(curW / 2 - 40, 8); /* siempre visible, arriba, aunque el HUD este apagado */
         if (showHud) {
             draw_hud(world, ss, &sf, seed, paused);
         }

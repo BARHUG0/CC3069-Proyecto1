@@ -1,6 +1,5 @@
 #include "systems.h"
 
-#include <assert.h>
 #include <math.h>
 
 #include "raylib.h"
@@ -85,24 +84,20 @@ void sys_twinkle(World *w, float t)
     }
 }
 
-void sys_drift(World *w, SolarSystems *ss, float screenW, float screenH, float dt)
+void sys_drift(World *w, SolarSystems *ss, float dt)
 {
     for (int s = 0; s < ss->count; ++s) {
-        float cx = ss->cx[s] + ss->vx[s] * dt;
-        float cy = ss->cy[s] + ss->vy[s] * dt;
+        /* Mismo patron de integracion que sys_orbit (angulo + envoltura mod
+         * 2pi), aplicado al centro del sistema alrededor de una de las dos
+         * anclas compartidas en vez de a un planeta alrededor de su sol. */
+        float a = ss->orbAng[s] + ss->orbSpd[s] * dt;
+        if (a > 6.2831853f) a -= 6.2831853f;
+        if (a < 0.0f)       a += 6.2831853f;
+        ss->orbAng[s] = a;
 
-        const float r = ss->ext[s];
-
-        /* Envuelve cuando el sistema entero (centro +/- r) cruza el borde:
-         * reaparece justo del otro lado en el mismo instante en que el ultimo
-         * pixel abandona la pantalla, sin hueco ni duplicado. */
-        if (cx >  screenW + r) cx -= (screenW + 2.0f * r);
-        if (cx < -r)           cx += (screenW + 2.0f * r);
-        if (cy >  screenH + r) cy -= (screenH + 2.0f * r);
-        if (cy < -r)           cy += (screenH + 2.0f * r);
-
-        assert(cx >= -r - 0.5f && cx <= screenW + r + 0.5f);
-        assert(cy >= -r - 0.5f && cy <= screenH + r + 0.5f);
+        const int   anchorIdx = ss->anchor[s];
+        const float cx = ss->anchorX[anchorIdx] + ss->orbRad[s] * cosf(a);
+        const float cy = ss->anchorY[anchorIdx] + ss->orbRad[s] * sinf(a);
 
         ss->cx[s] = cx;
         ss->cy[s] = cy;
@@ -178,12 +173,8 @@ int sys_lifetime(World *w, float dt)
 
 /* --- estelas -------------------------------------------------------------- */
 
-void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss,
-                 float screenW, float screenH)
+void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss)
 {
-    tb->screenW = screenW;
-    tb->screenH = screenH;
-
     int n = 0;
     for (int s = 0; s < ss->count && n < MAX_TRAIL_BODIES; ++s) {
         if (ss->sun[s] == ECS_INVALID) {
@@ -288,7 +279,11 @@ static void render_rings(const SolarSystems *ss)
  *
  * ponytail: sin techo de segmentos por frame (bodyCount*TRAIL_LEN, ~196k en
  * el peor caso de N=256 sistemas llenos). Con N tipico (<=20) sobra margen;
- * si un N muy alto lo nota, saltar a dibujar 1 de cada 2 rebanadas. */
+ * si un N muy alto lo nota, saltar a dibujar 1 de cada 2 rebanadas.
+ *
+ * Sin guard de costura: los sistemas orbitan un anclaje fijo (sys_drift), ya
+ * no hay teletransporte en los bordes, asi que cada segmento consecutivo es
+ * siempre un paso corto real. */
 static void render_trails(const TrailBuffer *tb)
 {
     if (tb->fill < 2) {
@@ -296,8 +291,6 @@ static void render_trails(const TrailBuffer *tb)
     }
 
     const int oldest = (tb->head - tb->fill + TRAIL_LEN) % TRAIL_LEN;
-    const float halfW = tb->screenW * 0.5f;
-    const float halfH = tb->screenH * 0.5f;
 
     BeginBlendMode(BLEND_ADDITIVE);
     for (int k = 0; k < tb->fill - 1; ++k) {
@@ -310,16 +303,7 @@ static void render_trails(const TrailBuffer *tb)
         for (int b = 0; b < tb->bodyCount; ++b) {
             const Vector2 p0 = { tb->x[i0][b], tb->y[i0][b] };
             const Vector2 p1 = { tb->x[i1][b], tb->y[i1][b] };
-
-            /* Guard de costura: un salto por wrap mueve al cuerpo casi el
-             * ancho/alto de pantalla en un solo tick; un paso real a 24 Hz
-             * son unos pocos pixeles. Sin esto, envolver dibujaria un rayajo
-             * cruzando toda la pantalla. */
-            if (fabsf(p1.x - p0.x) > halfW || fabsf(p1.y - p0.y) > halfH) {
-                continue;
-            }
-
-            DrawLineEx(p0, p1, 1.6f, (Color){ tb->cr[b], tb->cg[b], tb->cb[b], a });
+            DrawLineEx(p0, p1, 2.2f, (Color){ tb->cr[b], tb->cg[b], tb->cb[b], a });
         }
     }
     EndBlendMode();

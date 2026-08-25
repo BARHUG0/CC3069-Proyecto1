@@ -162,16 +162,60 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
     const float sunRad    = clampf(cellR * 0.16f, 2.5f, 10.0f);
     const float planetRef = clampf(cellR * 0.055f, 1.2f, 5.0f);
 
+    /* Dos anclas fijas, una por mitad de pantalla. */
+    ss->anchorX[0] = screenW * 0.25f;
+    ss->anchorY[0] = screenH * 0.5f;
+    ss->anchorX[1] = screenW * 0.75f;
+    ss->anchorY[1] = screenH * 0.5f;
+
+    /* Alcance visual del sistema (anillo exterior + halo del sol), para topar
+     * el radio de orbita sin que un sistema pueda llegar a salirse de la
+     * pantalla. Radio maximo por ancla: lo que quepa hasta el borde de
+     * pantalla mas cercano a esa ancla, menos ese alcance. */
+    const float reach = cellR * 1.05f;
+    float anchorMaxR[2], anchorMinR[2];
+    for (int a = 0; a < 2; ++a) {
+        float m = fminf(fminf(ss->anchorX[a], screenW - ss->anchorX[a]),
+                        fminf(ss->anchorY[a], screenH - ss->anchorY[a])) - reach;
+        if (m < reach) m = reach; /* pantallas angostas: igual deja recorrido */
+        anchorMaxR[a] = m;
+        anchorMinR[a] = m * 0.35f;
+    }
+
+    /* Reparto barajado, no un volado independiente por sistema: con N chico
+     * (el caso tipico) unos cuantos volados de moneda pueden caer 8 a 2 por
+     * puro azar, y eso se lee en pantalla como "sigue pegado a un lado"
+     * aunque sea random de verdad. Se arma n/2 y n/2 (el impar va al lado 1)
+     * y se baraja con Fisher-Yates: el orden es al azar, el conteo por lado
+     * siempre queda parejo. s ya no tiene significado posicional (col/row
+     * solo fijan tamano de celda), asi que barajar por s no reintroduce
+     * ninguna relacion con donde nacio el sistema. */
+    int assign[MAX_SYSTEMS];
     for (int s = 0; s < n; ++s) {
-        const int col = s % cols;
-        const int row = s / cols;
+        assign[s] = (s < n / 2) ? 0 : 1;
+    }
+    for (int s = n - 1; s > 0; --s) {
+        const int j = (int)rng_below(rng, (uint32_t)(s + 1));
+        const int tmp = assign[s];
+        assign[s] = assign[j];
+        assign[j] = tmp;
+    }
 
-        /* Jitter para que la rejilla no se note. */
-        const float jx = rng_range(rng, -0.12f, 0.12f) * cellW;
-        const float jy = rng_range(rng, -0.12f, 0.12f) * cellH;
+    for (int s = 0; s < n; ++s) {
+        const int anchorIdx = assign[s];
+        ss->anchor[s] = anchorIdx;
 
-        const float cx = ((float)col + 0.5f) * cellW + jx;
-        const float cy = ((float)row + 0.5f) * cellH + jy;
+        const float radius = rng_range(rng, anchorMinR[anchorIdx], anchorMaxR[anchorIdx]);
+        const float angle  = rng_range(rng, 0.0f, 6.2831853f);
+        /* Velocidad angular: una vuelta completa cada ~18-42 s. */
+        const float ospd   = rng_sign(rng) * rng_range(rng, 0.15f, 0.35f);
+
+        const float cx = ss->anchorX[anchorIdx] + radius * cosf(angle);
+        const float cy = ss->anchorY[anchorIdx] + radius * sinf(angle);
+
+        ss->orbRad[s] = radius;
+        ss->orbAng[s] = angle;
+        ss->orbSpd[s] = ospd;
 
         ss->cx[s]        = cx;
         ss->cy[s]        = cy;
@@ -184,26 +228,6 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         /* Velocidad de referencia del sistema: cada sistema gira a su ritmo. */
         const float baseSpeed = rng_range(rng, 0.35f, 0.85f);
         const float spin      = rng_sign(rng); /* algunos sistemas retrogrados */
-
-        /* Deriva del sistema completo: relativa a la pantalla para que se vea
-         * igual de rapida a cualquier resolucion.
-         *
-         * El angulo se estratifica igual que la rejilla de posiciones (sector
-         * fijo + jitter aleatorio dentro del sector) en vez de un angulo
-         * puramente uniforme: con N chico (4-9 sistemas, el caso tipico) un
-         * angulo uniforme por sistema cae por azar en el mismo cuadrante con
-         * demasiada frecuencia, y entonces "todos" derivan hacia el mismo
-         * lado y se amontonan juntos en una esquina. Repartir un sector por
-         * sistema lo evita sin perder aleatoriedad. */
-        const float sector    = 6.2831853f / (float)n;
-        const float driftAng  = sector * (float)s + rng_range(rng, 0.0f, sector);
-        const float driftSpeed = rng_range(rng, 0.012f, 0.035f) * screenW;
-        ss->vx[s] = cosf(driftAng) * driftSpeed;
-        ss->vy[s] = sinf(driftAng) * driftSpeed;
-
-        /* Radio envolvente: crece con cada planeta creado; sunRad*5 cubre el
-         * halo del sol aunque el sistema termine sin planetas. */
-        float ext = sunRad * 5.0f;
 
         int created = 0;
         for (int i = 0; i < planets; ++i) {
@@ -234,9 +258,6 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
                 break; /* mundo lleno */
             }
 
-            const float reach = ((rx > ry) ? rx : ry) + pr;
-            if (reach > ext) ext = reach;
-
             ss->ringCx[ss->ringTotal]     = cx;
             ss->ringCy[ss->ringTotal]     = cy;
             ss->ringRx[ss->ringTotal]     = rx;
@@ -246,7 +267,6 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
             created++;
         }
 
-        ss->ext[s]          = ext;
         ss->planetCount[s]  = created;
         ss->totalPlanets   += created;
     }
