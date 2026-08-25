@@ -23,8 +23,12 @@ ifeq ($(OS),Windows_NT)
 else
   UNAME_S := $(shell uname -s)
   ifeq ($(UNAME_S),Darwin)
-    BIN    := screensaver
-    LDLIBS := -lraylib -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+    BIN     := screensaver
+    # raylib se instala vía Homebrew (brew install raylib); pkg-config
+    # resuelve sus rutas (/opt/homebrew o /usr/local según el chip).
+    CFLAGS  += $(shell pkg-config --cflags raylib)
+    LDFLAGS += $(shell pkg-config --libs-only-L raylib)
+    LDLIBS  := -lraylib -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
   else
     BIN    := screensaver
     LDLIBS := -lraylib -lm -lpthread -ldl -lrt -lX11
