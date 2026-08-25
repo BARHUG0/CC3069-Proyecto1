@@ -32,9 +32,18 @@ typedef struct SolarSystems {
     float ringCy[MAX_PLANETS_TOTAL];
     float ringRx[MAX_PLANETS_TOTAL];
     float ringRy[MAX_PLANETS_TOTAL];
+    /* Entidad planeta del anillo i. Junta explicita entre esta tabla y el
+     * World: los ids son consecutivos en la practica (ecs_reset justo antes),
+     * pero eso es un accidente del orden de creacion, no una garantia. */
+    Entity ringEntity[MAX_PLANETS_TOTAL];
     int   ringTotal;
 
     int totalPlanets;
+
+    /* --- deriva: el sistema completo se traslada y envuelve en los bordes -- */
+    float vx[MAX_SYSTEMS];  /* px/s */
+    float vy[MAX_SYSTEMS];  /* px/s */
+    float ext[MAX_SYSTEMS]; /* radio envolvente (anillo exterior + halo), margen del wrap */
 } SolarSystems;
 
 /* Crea una estrella de fondo efimera (C_POS|C_RENDER|C_TWINKLE|C_LIFE).

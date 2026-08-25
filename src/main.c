@@ -36,6 +36,7 @@ typedef struct Config {
     long         frames;     /* 0 = infinito (modo screensaver)    */
     const char  *screenshot; /* NULL = no capturar                 */
     int          rings;      /* dibujar anillos de orbita          */
+    int          trails;     /* dibujar estelas de sol y planetas  */
     int          vsync;      /* 0 = sin limite, para medir         */
     int          hud;        /* mostrar el panel al arrancar       */
 } Config;
@@ -52,12 +53,13 @@ static void print_usage(const char *exe)
     printf("  --seed S           semilla del generador (default: reloj)\n");
     printf("  --fullscreen       arrancar en pantalla completa sin borde\n");
     printf("  --no-rings         no dibujar los anillos de las orbitas\n");
+    printf("  --no-trails        no dibujar las estelas de sol y planetas\n");
     printf("  --no-vsync         sin sincronia vertical (para medir FPS reales)\n");
     printf("  --hud              arrancar con el panel de datos visible\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
     printf("  -h, --help         esta ayuda\n");
-    printf("\nTeclas: H hud | O orbitas | SPACE pausa | R nueva escena | F pantalla | ESC salir\n");
+    printf("\nTeclas: H hud | O orbitas | T estelas | SPACE pausa | R nueva escena | F pantalla | ESC salir\n");
 }
 
 /* Lee un entero de argv[i+1]. Devuelve 0 si falta o no es valido. */
@@ -90,6 +92,7 @@ static int parse_args(int argc, char **argv, Config *cfg)
     cfg->frames     = 0;
     cfg->screenshot = NULL;
     cfg->rings      = 1;
+    cfg->trails     = 1;
     cfg->vsync      = 1;
     cfg->hud        = 0;
 
@@ -118,6 +121,8 @@ static int parse_args(int argc, char **argv, Config *cfg)
             cfg->fullscreen = 1;
         } else if (strcmp(a, "--no-rings") == 0) {
             cfg->rings = 0;
+        } else if (strcmp(a, "--no-trails") == 0) {
+            cfg->trails = 0;
         } else if (strcmp(a, "--no-vsync") == 0) {
             cfg->vsync = 0;
         } else if (strcmp(a, "--hud") == 0) {
@@ -175,12 +180,13 @@ static int parse_args(int argc, char **argv, Config *cfg)
 
 /* Reconstruye la escena completa para una resolucion dada. Se llama al inicio,
  * al cambiar de tamano y al pedir una escena nueva con R. */
-static void build_scene(World *w, SolarSystems *ss, StarField *sf, Rng *rng,
-                        const Config *cfg, int screenW, int screenH)
+static void build_scene(World *w, SolarSystems *ss, StarField *sf, TrailBuffer *tb,
+                        Rng *rng, const Config *cfg, int screenW, int screenH)
 {
     ecs_reset(w);
     spawn_solar_systems(w, ss, rng, cfg->systems, (float)screenW, (float)screenH);
     starfield_init(sf, cfg->stars, (float)screenW, (float)screenH);
+    trails_init(tb, w, ss, (float)screenW, (float)screenH);
 }
 
 static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf,
@@ -213,7 +219,7 @@ static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf
     DrawText(TextFormat("Semilla: %u%s", seed, paused ? "   [PAUSA]" : ""),
              x + 10, line, 12, (Color){ 190, 200, 220, 255 });
     line += step + 3;
-    DrawText("H hud | O orbitas | SPACE pausa | R nueva | F pantalla | ESC salir",
+    DrawText("H hud | O orbitas | T estelas | SPACE pausa | R nueva | F pantalla | ESC salir",
              x + 10, line, 10, (Color){ 150, 160, 185, 255 });
 }
 
@@ -242,11 +248,21 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* SolarSystems tambien va al heap: son ~40 KB, pero mantener el stack
-     * limpio evita sorpresas en hilos con pila pequena. */
+    /* SolarSystems y TrailBuffer tambien van al heap: SolarSystems son ~40 KB,
+     * TrailBuffer ~1.8 MB (TRAIL_LEN muestras x MAX_TRAIL_BODIES cuerpos x 2
+     * ejes), pero mantener el stack limpio evita sorpresas en hilos con pila
+     * pequena. */
     SolarSystems *ss = (SolarSystems *)calloc(1, sizeof(SolarSystems));
     if (ss == NULL) {
         fprintf(stderr, "Error: no se pudo reservar los sistemas solares.\n");
+        ecs_world_free(world);
+        return 1;
+    }
+
+    TrailBuffer *tb = (TrailBuffer *)calloc(1, sizeof(TrailBuffer));
+    if (tb == NULL) {
+        fprintf(stderr, "Error: no se pudo reservar las estelas.\n");
+        free(ss);
         ecs_world_free(world);
         return 1;
     }
@@ -263,6 +279,7 @@ int main(int argc, char **argv)
     InitWindow(cfg.width, cfg.height, "Screensaver ECS - estrellas y sistemas solares");
     if (!IsWindowReady()) {
         fprintf(stderr, "Error: no se pudo crear la ventana.\n");
+        free(tb);
         free(ss);
         ecs_world_free(world);
         return 1;
@@ -286,12 +303,13 @@ int main(int argc, char **argv)
     StarField sf;
     int curW = GetScreenWidth();
     int curH = GetScreenHeight();
-    build_scene(world, ss, &sf, &rng, &cfg, curW, curH);
+    build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
 
-    const Color bg = { 6, 8, 18, 255 };
+    const Color bg = BLACK; /* fondo completamente negro, sin tinte */
 
     int  showHud    = cfg.hud;
     int  showRings  = cfg.rings;
+    int  showTrails = cfg.trails;
     int  paused     = 0;
     int  cursorHidden = cfg.fullscreen;
     float simTime   = 0.0f;
@@ -316,13 +334,14 @@ int main(int argc, char **argv)
             dt = 0.05f; /* un tiron del sistema no debe teletransportar planetas */
         }
 
-        if (IsKeyPressed(KEY_H))     showHud   = !showHud;
-        if (IsKeyPressed(KEY_O))     showRings = !showRings;
-        if (IsKeyPressed(KEY_SPACE)) paused    = !paused;
+        if (IsKeyPressed(KEY_H))     showHud    = !showHud;
+        if (IsKeyPressed(KEY_O))     showRings  = !showRings;
+        if (IsKeyPressed(KEY_T))     showTrails = !showTrails;
+        if (IsKeyPressed(KEY_SPACE)) paused     = !paused;
         if (IsKeyPressed(KEY_R)) {
             seed = rng_u32(&rng);
             rng_seed(&rng, seed);
-            build_scene(world, ss, &sf, &rng, &cfg, curW, curH);
+            build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
         }
         if (IsKeyPressed(KEY_F)) {
             ToggleBorderlessWindowed();
@@ -338,7 +357,7 @@ int main(int argc, char **argv)
             curW = sw;
             curH = sh;
             rng_seed(&rng, seed);
-            build_scene(world, ss, &sf, &rng, &cfg, curW, curH);
+            build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
         }
 
         if (!paused) {
@@ -346,8 +365,10 @@ int main(int argc, char **argv)
 
             simTime += dt;
             sys_spawn_stars(world, &sf, &rng, dt);
+            sys_drift(world, ss, (float)curW, (float)curH, dt);
             sys_twinkle(world, simTime);
             sys_orbit(world, dt);
+            sys_trails(world, tb, dt);
             sf.liveStars -= sys_lifetime(world, dt);
 
             updateAccum += GetTime() - t0;
@@ -356,7 +377,7 @@ int main(int argc, char **argv)
 
         BeginDrawing();
         ClearBackground(bg);
-        sys_render(world, ss, showRings);
+        sys_render(world, ss, tb, showRings, showTrails);
         if (showHud) {
             draw_hud(world, ss, &sf, seed, paused);
         }
@@ -397,6 +418,7 @@ int main(int argc, char **argv)
         printf("Semilla           : %u\n", seed);
     }
 
+    free(tb);
     free(ss);
     ecs_world_free(world);
     return 0;

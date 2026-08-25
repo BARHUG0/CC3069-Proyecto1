@@ -5,11 +5,17 @@
  * estos bucles y los datos viven en World.
  *
  * Orden obligatorio por fotograma:
- *      sys_spawn_stars -> sys_twinkle -> sys_orbit -> sys_lifetime -> sys_render
+ *      sys_spawn_stars -> sys_drift -> sys_twinkle -> sys_orbit ->
+ *      sys_trails -> sys_lifetime -> sys_render
  *
  * La dependencia real es twinkle antes de lifetime: twinkle ESCRIBE alpha con
  * el brillo del centelleo y lifetime lo MULTIPLICA por el sobre de aparicion y
  * desaparicion. Invertirlos haria que las estrellas nunca se desvanezcan.
+ *
+ * sys_drift va antes de sys_orbit: mueve el centro de cada sistema (ocx/ocy
+ * de sus planetas, px/py de su sol) para que sys_orbit reproyecte sobre el
+ * centro ya actualizado del fotograma. sys_trails va despues de sys_orbit:
+ * muestrea las posiciones ya definitivas del fotograma.
  */
 #ifndef SYSTEMS_H
 #define SYSTEMS_H
@@ -34,6 +40,54 @@ void starfield_init(StarField *sf, int targetStars, float screenW, float screenH
 /* Crea estrellas hasta acercarse a targetStars. Devuelve cuantas creo. */
 int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt);
 
+/* Traslada cada sistema solar y lo envuelve en los bordes de pantalla (sale
+ * por completo por un lado, reaparece por el opuesto). Escribe px/py del sol,
+ * ocx/ocy de sus planetas y los centros de anillo en ss: todo lo que depende
+ * del centro del sistema queda al dia antes de que sys_orbit reproyecte. */
+void sys_drift(World *w, SolarSystems *ss, float screenW, float screenH, float dt);
+
+/* --- estelas -------------------------------------------------------------
+ * Estado global (como StarField): no es un dato por entidad, asi que vive
+ * fuera del World. Guarda un historial circular de posiciones por cuerpo
+ * (soles + planetas) muestreado a TRAIL_HZ fijo, para que la estela dure lo
+ * mismo sin importar el framerate.
+ *
+ * Layout [muestra][cuerpo]: el bucle caliente (sys_trails) escribe una
+ * rebanada -todos los cuerpos- por tick, asi que ese es el eje contiguo. El
+ * color se copia por valor una vez en trails_init (ver ecs.h: copiar en vez
+ * de saltar a leer otro arreglo dentro del bucle).
+ */
+#define TRAIL_LEN        96     /* muestras por cuerpo (~4 s a TRAIL_HZ)   */
+#define TRAIL_HZ         24.0f  /* muestreo fijo, independiente del FPS    */
+#define MAX_TRAIL_BODIES (MAX_SYSTEMS + MAX_PLANETS_TOTAL)
+
+typedef struct TrailBuffer {
+    int     bodyCount;
+    Entity  body[MAX_TRAIL_BODIES];
+    uint8_t cr[MAX_TRAIL_BODIES];
+    uint8_t cg[MAX_TRAIL_BODIES];
+    uint8_t cb[MAX_TRAIL_BODIES];
+
+    float x[TRAIL_LEN][MAX_TRAIL_BODIES];
+    float y[TRAIL_LEN][MAX_TRAIL_BODIES];
+
+    int   head;  /* proxima rebanada a escribir                */
+    int   fill;  /* rebanadas validas, satura en TRAIL_LEN      */
+    float accum; /* fraccion de tick de muestreo pendiente      */
+
+    /* Tamano de pantalla vigente: solo lo usa el guard de costura al
+     * dibujar, para distinguir un paso normal de un salto por wrap. */
+    float screenW;
+    float screenH;
+} TrailBuffer;
+
+/* Recorre sun[] y ringEntity[] de ss una vez y arma la tabla de cuerpos. */
+void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss,
+                 float screenW, float screenH);
+
+/* Empuja una rebanada de posiciones cuando toca (a TRAIL_HZ). */
+void sys_trails(const World *w, TrailBuffer *tb, float dt);
+
 /* alpha = twBase + twAmp * sin(twFreq * t + twPhase). Solo lectura/escritura
  * por entidad, sin variables compartidas: paralelizable tal cual. */
 void sys_twinkle(World *w, float t);
@@ -48,6 +102,7 @@ int sys_lifetime(World *w, float dt);
 
 /* Dibuja todo. Debe correr entre BeginDrawing/EndDrawing y solo en el hilo
  * principal: OpenGL no es reentrante. */
-void sys_render(const World *w, const SolarSystems *ss, int showRings);
+void sys_render(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
+                int showRings, int showTrails);
 
 #endif /* SYSTEMS_H */

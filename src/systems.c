@@ -1,5 +1,6 @@
 #include "systems.h"
 
+#include <assert.h>
 #include <math.h>
 
 #include "raylib.h"
@@ -84,6 +85,46 @@ void sys_twinkle(World *w, float t)
     }
 }
 
+void sys_drift(World *w, SolarSystems *ss, float screenW, float screenH, float dt)
+{
+    for (int s = 0; s < ss->count; ++s) {
+        float cx = ss->cx[s] + ss->vx[s] * dt;
+        float cy = ss->cy[s] + ss->vy[s] * dt;
+
+        const float r = ss->ext[s];
+
+        /* Envuelve cuando el sistema entero (centro +/- r) cruza el borde:
+         * reaparece justo del otro lado en el mismo instante en que el ultimo
+         * pixel abandona la pantalla, sin hueco ni duplicado. */
+        if (cx >  screenW + r) cx -= (screenW + 2.0f * r);
+        if (cx < -r)           cx += (screenW + 2.0f * r);
+        if (cy >  screenH + r) cy -= (screenH + 2.0f * r);
+        if (cy < -r)           cy += (screenH + 2.0f * r);
+
+        assert(cx >= -r - 0.5f && cx <= screenW + r + 0.5f);
+        assert(cy >= -r - 0.5f && cy <= screenH + r + 0.5f);
+
+        ss->cx[s] = cx;
+        ss->cy[s] = cy;
+
+        if (ss->sun[s] != ECS_INVALID) {
+            w->px[ss->sun[s]] = cx;
+            w->py[ss->sun[s]] = cy;
+        }
+
+        const int first = ss->ringFirst[s];
+        const int last  = first + ss->planetCount[s];
+        for (int i = first; i < last; ++i) {
+            ss->ringCx[i] = cx;
+            ss->ringCy[i] = cy;
+
+            const Entity pe = ss->ringEntity[i];
+            w->ocx[pe] = cx;
+            w->ocy[pe] = cy;
+        }
+    }
+}
+
 void sys_orbit(World *w, float dt)
 {
     const uint32_t n    = w->highWater;
@@ -135,6 +176,63 @@ int sys_lifetime(World *w, float dt)
     return killed;
 }
 
+/* --- estelas -------------------------------------------------------------- */
+
+void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss,
+                 float screenW, float screenH)
+{
+    tb->screenW = screenW;
+    tb->screenH = screenH;
+
+    int n = 0;
+    for (int s = 0; s < ss->count && n < MAX_TRAIL_BODIES; ++s) {
+        if (ss->sun[s] == ECS_INVALID) {
+            continue;
+        }
+        tb->body[n] = ss->sun[s];
+        tb->cr[n]   = w->cr[ss->sun[s]];
+        tb->cg[n]   = w->cg[ss->sun[s]];
+        tb->cb[n]   = w->cb[ss->sun[s]];
+        n++;
+    }
+    for (int i = 0; i < ss->ringTotal && n < MAX_TRAIL_BODIES; ++i) {
+        const Entity pe = ss->ringEntity[i];
+        tb->body[n] = pe;
+        tb->cr[n]   = w->cr[pe];
+        tb->cg[n]   = w->cg[pe];
+        tb->cb[n]   = w->cb[pe];
+        n++;
+    }
+
+    tb->bodyCount = n;
+    tb->head      = 0;
+    tb->fill      = 0;
+    tb->accum     = 0.0f;
+}
+
+void sys_trails(const World *w, TrailBuffer *tb, float dt)
+{
+    tb->accum += dt;
+
+    const float period = 1.0f / TRAIL_HZ;
+    if (tb->accum < period) {
+        return;
+    }
+    tb->accum -= period;
+
+    const int head = tb->head;
+    for (int b = 0; b < tb->bodyCount; ++b) {
+        const Entity e = tb->body[b];
+        tb->x[head][b] = w->px[e];
+        tb->y[head][b] = w->py[e];
+    }
+
+    tb->head = (head + 1) % TRAIL_LEN;
+    if (tb->fill < TRAIL_LEN) {
+        tb->fill++;
+    }
+}
+
 /* --- render ------------------------------------------------------------- */
 
 static void render_starfield(const World *w)
@@ -181,6 +279,50 @@ static void render_rings(const SolarSystems *ss)
                          ss->ringRx[i], ss->ringRy[i],
                          (Color){ 130, 150, 200, 30 });
     }
+}
+
+/* Dibuja por rebanada: el alpha depende solo de la edad de la muestra, no del
+ * cuerpo, asi que se calcula una vez por rebanada en vez de una vez por
+ * segmento (TRAIL_LEN veces en vez de TRAIL_LEN*bodyCount). El recorrido de
+ * memoria es lineal en x[][]/y[][], mismo eje que la escritura.
+ *
+ * ponytail: sin techo de segmentos por frame (bodyCount*TRAIL_LEN, ~196k en
+ * el peor caso de N=256 sistemas llenos). Con N tipico (<=20) sobra margen;
+ * si un N muy alto lo nota, saltar a dibujar 1 de cada 2 rebanadas. */
+static void render_trails(const TrailBuffer *tb)
+{
+    if (tb->fill < 2) {
+        return;
+    }
+
+    const int oldest = (tb->head - tb->fill + TRAIL_LEN) % TRAIL_LEN;
+    const float halfW = tb->screenW * 0.5f;
+    const float halfH = tb->screenH * 0.5f;
+
+    BeginBlendMode(BLEND_ADDITIVE);
+    for (int k = 0; k < tb->fill - 1; ++k) {
+        const int i0 = (oldest + k) % TRAIL_LEN;
+        const int i1 = (oldest + k + 1) % TRAIL_LEN;
+
+        const float t     = (float)(k + 1) / (float)tb->fill;
+        const unsigned char a = alpha8(t * t * 0.55f);
+
+        for (int b = 0; b < tb->bodyCount; ++b) {
+            const Vector2 p0 = { tb->x[i0][b], tb->y[i0][b] };
+            const Vector2 p1 = { tb->x[i1][b], tb->y[i1][b] };
+
+            /* Guard de costura: un salto por wrap mueve al cuerpo casi el
+             * ancho/alto de pantalla en un solo tick; un paso real a 24 Hz
+             * son unos pocos pixeles. Sin esto, envolver dibujaria un rayajo
+             * cruzando toda la pantalla. */
+            if (fabsf(p1.x - p0.x) > halfW || fabsf(p1.y - p0.y) > halfH) {
+                continue;
+            }
+
+            DrawLineEx(p0, p1, 1.6f, (Color){ tb->cr[b], tb->cg[b], tb->cb[b], a });
+        }
+    }
+    EndBlendMode();
 }
 
 static void render_suns(const World *w)
@@ -241,11 +383,15 @@ static void render_planets(const World *w)
     EndBlendMode();
 }
 
-void sys_render(const World *w, const SolarSystems *ss, int showRings)
+void sys_render(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
+                int showRings, int showTrails)
 {
     render_starfield(w);
     if (showRings) {
         render_rings(ss);
+    }
+    if (showTrails) {
+        render_trails(tb);
     }
     render_suns(w);
     render_planets(w);

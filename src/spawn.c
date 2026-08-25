@@ -3,22 +3,30 @@
 #include <math.h>
 
 /* Paletas fijas (no hay razon para generar color libre: los colores estelares
- * reales caen en una banda estrecha del azul al ambar). */
+ * reales caen en una banda estrecha del azul al ambar).
+ *
+ * Las estrellas de fondo y los soles de los sistemas son ambos "estrellas" en
+ * la realidad, pero aqui cumplen roles visuales distintos (fondo lejano vs.
+ * protagonista de un sistema), asi que se separan en bandas de color que NO
+ * se solapan: el fondo se queda en el extremo frio (tipos O/B/A, azul-blanco,
+ * los mas comunes a simple vista por su brillo) y los soles en el extremo
+ * calido (tipos G/K/M, como el propio Sol, que es lo que suele tener planetas
+ * alrededor). Sin esa separacion, un sol y una estrella de fondo del mismo
+ * tono blanco-amarillo se confunden en pantalla. */
 static const uint8_t STAR_PALETTE[][3] = {
-    { 255, 255, 255 }, /* blanca      */
+    { 255, 255, 255 }, /* blanca (tipo A)       */
     { 255, 255, 255 },
-    { 202, 222, 255 }, /* azul-blanca */
-    { 170, 200, 255 }, /* azul        */
-    { 255, 226, 180 }, /* ambar       */
-    { 255, 196, 170 }  /* rojiza      */
+    { 225, 235, 255 }, /* blanca-azulada (F/A)  */
+    { 202, 222, 255 }, /* azul-blanca (B)       */
+    { 170, 200, 255 }  /* azul (O)              */
 };
 #define STAR_PALETTE_N (sizeof(STAR_PALETTE) / sizeof(STAR_PALETTE[0]))
 
 static const uint8_t SUN_PALETTE[][3] = {
-    { 255, 238, 170 },
-    { 255, 214, 130 },
-    { 255, 180, 110 },
-    { 210, 228, 255 }
+    { 255, 244, 200 }, /* tipo G, como el Sol   */
+    { 255, 214, 130 }, /* tipo K, naranja       */
+    { 255, 176, 110 }, /* K/M, naranja-rojizo   */
+    { 255, 140, 100 }  /* tipo M, enana roja    */
 };
 #define SUN_PALETTE_N (sizeof(SUN_PALETTE) / sizeof(SUN_PALETTE[0]))
 
@@ -177,6 +185,26 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         const float baseSpeed = rng_range(rng, 0.35f, 0.85f);
         const float spin      = rng_sign(rng); /* algunos sistemas retrogrados */
 
+        /* Deriva del sistema completo: relativa a la pantalla para que se vea
+         * igual de rapida a cualquier resolucion.
+         *
+         * El angulo se estratifica igual que la rejilla de posiciones (sector
+         * fijo + jitter aleatorio dentro del sector) en vez de un angulo
+         * puramente uniforme: con N chico (4-9 sistemas, el caso tipico) un
+         * angulo uniforme por sistema cae por azar en el mismo cuadrante con
+         * demasiada frecuencia, y entonces "todos" derivan hacia el mismo
+         * lado y se amontonan juntos en una esquina. Repartir un sector por
+         * sistema lo evita sin perder aleatoriedad. */
+        const float sector    = 6.2831853f / (float)n;
+        const float driftAng  = sector * (float)s + rng_range(rng, 0.0f, sector);
+        const float driftSpeed = rng_range(rng, 0.012f, 0.035f) * screenW;
+        ss->vx[s] = cosf(driftAng) * driftSpeed;
+        ss->vy[s] = sinf(driftAng) * driftSpeed;
+
+        /* Radio envolvente: crece con cada planeta creado; sunRad*5 cubre el
+         * halo del sol aunque el sistema termine sin planetas. */
+        float ext = sunRad * 5.0f;
+
         int created = 0;
         for (int i = 0; i < planets; ++i) {
             if (ss->ringTotal >= MAX_PLANETS_TOTAL) {
@@ -206,15 +234,20 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
                 break; /* mundo lleno */
             }
 
-            ss->ringCx[ss->ringTotal] = cx;
-            ss->ringCy[ss->ringTotal] = cy;
-            ss->ringRx[ss->ringTotal] = rx;
-            ss->ringRy[ss->ringTotal] = ry;
+            const float reach = ((rx > ry) ? rx : ry) + pr;
+            if (reach > ext) ext = reach;
+
+            ss->ringCx[ss->ringTotal]     = cx;
+            ss->ringCy[ss->ringTotal]     = cy;
+            ss->ringRx[ss->ringTotal]     = rx;
+            ss->ringRy[ss->ringTotal]     = ry;
+            ss->ringEntity[ss->ringTotal] = pe;
             ss->ringTotal++;
             created++;
         }
 
-        ss->planetCount[s] = created;
-        ss->totalPlanets  += created;
+        ss->ext[s]          = ext;
+        ss->planetCount[s]  = created;
+        ss->totalPlanets   += created;
     }
 }
