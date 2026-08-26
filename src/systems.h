@@ -22,8 +22,10 @@
  * centro de un planeta orbitando su sol, es el centro de un sistema entero
  * orbitando una de las dos anclas compartidas en ss->anchorX/Y (que ancla le
  * toca a cada sistema se decide al azar en el spawn, ss->anchor[s], ver
- * spawn.h). Por eso la orbita queda contenida por construccion y no necesita envolver
- * bordes.
+ * spawn.h, independiente de donde nacio el sistema). El radio de orbita sale
+ * de la geometria real hacia esa ancla, asi que puede ser grande y el
+ * sistema puede pasar temporadas fuera de pantalla; no hay guard de bordes
+ * porque es un caso aceptado, no un bug.
  */
 #ifndef SYSTEMS_H
 #define SYSTEMS_H

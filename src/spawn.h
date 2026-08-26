@@ -42,15 +42,16 @@ typedef struct SolarSystems {
 
     /* --- deriva: dos anclas fijas, una por mitad de pantalla, con el mismo
      * modelo (angulo + radio + velocidad angular) que ya usan los planetas
-     * alrededor de su sol, aplicado un nivel arriba. Que ancla le toca a cada
-     * sistema se decide con un reparto barajado en el spawn (mitad y mitad,
-     * orden al azar via Fisher-Yates — no un volado independiente por
-     * sistema, que con N chico puede caer muy desparejo por puro azar), y no
-     * por su columna en la rejilla: un sistema que nacio a la derecha puede
-     * terminar orbitando la mitad izquierda igual que uno que nacio ahi. Por
-     * diseno cada sistema se queda dentro de la mitad de SU ancla (el radio
-     * maximo que cabe sin salirse de una mitad no llega a cruzar el centro)
-     * — eso es justamente "un origen por mitad", no un defecto a corregir. */
+     * alrededor de su sol, aplicado un nivel arriba. La posicion de cada
+     * sistema se decide primero (rejilla + jitter, independiente del ancla);
+     * que ancla le toca se decide aparte con un reparto barajado (mitad y
+     * mitad, orden al azar via Fisher-Yates — no un volado independiente por
+     * sistema, que con N chico puede caer muy desparejo por puro azar). El
+     * radio/angulo de orbita salen de la geometria real entre posicion y
+     * ancla sorteada, asi que un sistema nacido en una mitad puede terminar
+     * orbitando el ancla de la otra y cruzarla — es el comportamiento pedido,
+     * no un defecto. Consecuencia aceptada: un sistema con ancla lejana tiene
+     * radio grande y puede salirse de pantalla por momentos. */
     float anchorX[2];
     float anchorY[2];
     int   anchor[MAX_SYSTEMS];  /* 0 o 1: que ancla le toca, al azar    */

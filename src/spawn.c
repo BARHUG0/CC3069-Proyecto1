@@ -168,28 +168,18 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
     ss->anchorX[1] = screenW * 0.75f;
     ss->anchorY[1] = screenH * 0.5f;
 
-    /* Alcance visual del sistema (anillo exterior + halo del sol), para topar
-     * el radio de orbita sin que un sistema pueda llegar a salirse de la
-     * pantalla. Radio maximo por ancla: lo que quepa hasta el borde de
-     * pantalla mas cercano a esa ancla, menos ese alcance. */
-    const float reach = cellR * 1.05f;
-    float anchorMaxR[2], anchorMinR[2];
-    for (int a = 0; a < 2; ++a) {
-        float m = fminf(fminf(ss->anchorX[a], screenW - ss->anchorX[a]),
-                        fminf(ss->anchorY[a], screenH - ss->anchorY[a])) - reach;
-        if (m < reach) m = reach; /* pantallas angostas: igual deja recorrido */
-        anchorMaxR[a] = m;
-        anchorMinR[a] = m * 0.35f;
-    }
+    /* Jitter chico para que la rejilla de posiciones no se note pero los
+     * sistemas no se toquen al nacer. */
+    const float jitter = 0.12f * ((cellW < cellH) ? cellW : cellH);
 
     /* Reparto barajado, no un volado independiente por sistema: con N chico
      * (el caso tipico) unos cuantos volados de moneda pueden caer 8 a 2 por
      * puro azar, y eso se lee en pantalla como "sigue pegado a un lado"
      * aunque sea random de verdad. Se arma n/2 y n/2 (el impar va al lado 1)
      * y se baraja con Fisher-Yates: el orden es al azar, el conteo por lado
-     * siempre queda parejo. s ya no tiene significado posicional (col/row
-     * solo fijan tamano de celda), asi que barajar por s no reintroduce
-     * ninguna relacion con donde nacio el sistema. */
+     * siempre queda parejo. Barajar el ancla (y no la posicion, que sigue
+     * fija por col/row) es lo que garantiza que a que mitad orbita un
+     * sistema no tenga relacion con en que mitad nacio. */
     int assign[MAX_SYSTEMS];
     for (int s = 0; s < n; ++s) {
         assign[s] = (s < n / 2) ? 0 : 1;
@@ -205,13 +195,28 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         const int anchorIdx = assign[s];
         ss->anchor[s] = anchorIdx;
 
-        const float radius = rng_range(rng, anchorMinR[anchorIdx], anchorMaxR[anchorIdx]);
-        const float angle  = rng_range(rng, 0.0f, 6.2831853f);
-        /* Velocidad angular: una vuelta completa cada ~18-42 s. */
-        const float ospd   = rng_sign(rng) * rng_range(rng, 0.15f, 0.35f);
+        /* Posicion propia del sistema: rejilla + jitter, sin mirar el ancla
+         * que le toco. Puede caer en cualquier mitad de pantalla. */
+        const int col = s % cols;
+        const int row = s / cols;
+        const float cx = (col + 0.5f) * cellW + rng_range(rng, -jitter, jitter);
+        const float cy = (row + 0.5f) * cellH + rng_range(rng, -jitter, jitter);
 
-        const float cx = ss->anchorX[anchorIdx] + radius * cosf(angle);
-        const float cy = ss->anchorY[anchorIdx] + radius * sinf(angle);
+        /* Radio y angulo de orbita: geometria real hacia el ancla sorteada,
+         * no un sorteo acotado a la mitad del ancla. Un sistema nacido en una
+         * mitad orbitando el ancla de la otra barre ambas. */
+        const float dx = cx - ss->anchorX[anchorIdx];
+        const float dy = cy - ss->anchorY[anchorIdx];
+        const float radius = sqrtf(dx * dx + dy * dy);
+        const float angle  = atan2f(dy, dx);
+
+        /* Velocidad angular derivada de una velocidad lineal fija (~25-70
+         * px/s), no un rad/s fijo: con radios que ahora varian mucho (~0 a
+         * ~1000px), un rad/s fijo haria que los sistemas de radio grande
+         * volaran por la pantalla. */
+        const float v = rng_range(rng, 25.0f, 70.0f);
+        float ospd = (radius > 1.0f) ? v / radius : 0.3f;
+        ospd = rng_sign(rng) * clampf(ospd, 0.03f, 0.5f);
 
         ss->orbRad[s] = radius;
         ss->orbAng[s] = angle;
