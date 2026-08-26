@@ -11,7 +11,7 @@ CC      := gcc
 CFLAGS  := -std=c11 -O2 -Wall -Wextra -Wpedantic
 LDFLAGS :=
 
-SRC := src/ecs.c src/spawn.c src/systems.c src/main.c
+SRC := src/ecs.c src/spawn.c src/systems.c src/deathstar.c src/main.c
 OBJ := $(SRC:.c=.o)
 
 ifeq ($(OS),Windows_NT)
@@ -45,7 +45,7 @@ $(BIN): $(OBJ)
 
 # Los .o dependen de todas las cabeceras: el proyecto es pequeño y así no hay
 # builds a medias tras editar un header.
-src/%.o: src/%.c src/ecs.h src/rng.h src/spawn.h src/systems.h
+src/%.o: src/%.c src/ecs.h src/rng.h src/spawn.h src/systems.h src/deathstar.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run: $(BIN)

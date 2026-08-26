@@ -13,6 +13,7 @@
 
 #include "raylib.h"
 
+#include "deathstar.h"
 #include "ecs.h"
 #include "rng.h"
 #include "spawn.h"
@@ -39,6 +40,8 @@ typedef struct Config {
     int          trails;     /* dibujar estelas de sol y planetas  */
     int          vsync;      /* 0 = sin limite, para medir         */
     int          hud;        /* mostrar el panel al arrancar       */
+    int          deadstar;      /* modalidad Estrella de la Muerte    */
+    float        deadstarSecs;  /* periodo entre disparos, en s       */
 } Config;
 
 static void print_usage(const char *exe)
@@ -56,6 +59,7 @@ static void print_usage(const char *exe)
     printf("  --no-trails        no dibujar las estelas de sol y planetas\n");
     printf("  --no-vsync         sin sincronia vertical (para medir FPS reales)\n");
     printf("  --hud              arrancar con el panel de datos visible\n");
+    printf("  --deadstar [SECS]  Estrella de la Muerte: dispara cada SECS s (default 5)\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
     printf("  -h, --help         esta ayuda\n");
@@ -95,6 +99,8 @@ static int parse_args(int argc, char **argv, Config *cfg)
     cfg->trails     = 1;
     cfg->vsync      = 1;
     cfg->hud        = 0;
+    cfg->deadstar     = 0;
+    cfg->deadstarSecs = 5.0f;
 
     for (int i = 1; i < argc; ++i) {
         const char *a = argv[i];
@@ -127,6 +133,19 @@ static int parse_args(int argc, char **argv, Config *cfg)
             cfg->vsync = 0;
         } else if (strcmp(a, "--hud") == 0) {
             cfg->hud = 1;
+        } else if (strcmp(a, "--deadstar") == 0) {
+            /* Valor opcional: si el siguiente argv parsea como numero > 0 se
+             * usa como periodo, si no se queda con el default (5s). */
+            cfg->deadstar     = 1;
+            cfg->deadstarSecs = 5.0f;
+            if (i + 1 < argc) {
+                char *end = NULL;
+                const double sv = strtod(argv[i + 1], &end);
+                if (end != argv[i + 1] && *end == '\0' && sv > 0.0) {
+                    cfg->deadstarSecs = (float)sv;
+                    i += 1;
+                }
+            }
         } else if (strcmp(a, "--screenshot") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Error: --screenshot requiere una ruta.\n");
@@ -190,9 +209,9 @@ static void build_scene(World *w, SolarSystems *ss, StarField *sf, TrailBuffer *
 }
 
 static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf,
-                     unsigned int seed, int paused)
+                     const DeathStar *ds, unsigned int seed, int paused)
 {
-    const int x = 12, y = 12, pw = 336, ph = 132;
+    const int x = 12, y = 12, pw = 336, ph = (ds != NULL) ? 147 : 132;
 
     DrawRectangle(x, y, pw, ph, (Color){ 0, 0, 0, 150 });
     DrawRectangleLines(x, y, pw, ph, (Color){ 90, 110, 160, 180 });
@@ -218,7 +237,16 @@ static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf
     line += step;
     DrawText(TextFormat("Semilla: %u%s", seed, paused ? "   [PAUSA]" : ""),
              x + 10, line, 12, (Color){ 190, 200, 220, 255 });
-    line += step + 3;
+    line += step;
+    if (ds != NULL) {
+        const char *phaseName = (ds->phase == DS_IDLE) ? "esperando"
+                               : (ds->phase == DS_CHARGE) ? "cargando" : "FUEGO";
+        DrawText(TextFormat("Estrella de la Muerte: %s (%.1fs)  Sistemas destruidos: %d",
+                            phaseName, ds->timer > 0.0f ? ds->timer : 0.0f, ds->kills),
+                 x + 10, line, 12, (Color){ 255, 170, 140, 255 });
+        line += step;
+    }
+    line += 3;
     DrawText("H hud | O orbitas | T estelas | SPACE pausa | R nueva | F pantalla | ESC salir",
              x + 10, line, 10, (Color){ 150, 160, 185, 255 });
 }
@@ -305,6 +333,15 @@ int main(int argc, char **argv)
     int curH = GetScreenHeight();
     build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
 
+    /* Cargada solo si se pidio: modelos y textura viven en GPU/heap propios,
+     * nada que ver con World/SolarSystems/TrailBuffer. Se carga despues de
+     * build_scene para que la escena (con la misma semilla) sea identica se
+     * pida o no --deadstar. */
+    DeathStar deathstar;
+    if (cfg.deadstar) {
+        deathstar_load(&deathstar, &rng, cfg.deadstarSecs);
+    }
+
     const Color bg = BLACK; /* fondo completamente negro, sin tinte */
 
     int  showHud    = cfg.hud;
@@ -342,6 +379,9 @@ int main(int argc, char **argv)
             seed = rng_u32(&rng);
             rng_seed(&rng, seed);
             build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
+            if (cfg.deadstar) {
+                deathstar_reset(&deathstar);
+            }
         }
         if (IsKeyPressed(KEY_F)) {
             ToggleBorderlessWindowed();
@@ -358,6 +398,9 @@ int main(int argc, char **argv)
             curH = sh;
             rng_seed(&rng, seed);
             build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
+            if (cfg.deadstar) {
+                deathstar_reset(&deathstar);
+            }
         }
 
         if (!paused) {
@@ -366,6 +409,10 @@ int main(int argc, char **argv)
             simTime += dt;
             sys_spawn_stars(world, &sf, &rng, dt);
             sys_drift(world, ss, dt);
+            if (cfg.deadstar) {
+                deathstar_update(&deathstar, world, ss, tb, &rng, cfg.systems,
+                                 (float)curW, (float)curH, dt);
+            }
             sys_twinkle(world, simTime);
             sys_orbit(world, dt);
             sys_trails(world, tb, dt);
@@ -378,9 +425,12 @@ int main(int argc, char **argv)
         BeginDrawing();
         ClearBackground(bg);
         sys_render(world, ss, tb, showRings, showTrails);
+        if (cfg.deadstar) {
+            deathstar_render(&deathstar, curW, curH);
+        }
         DrawFPS(curW / 2 - 40, 8); /* siempre visible, arriba, aunque el HUD este apagado */
         if (showHud) {
-            draw_hud(world, ss, &sf, seed, paused);
+            draw_hud(world, ss, &sf, cfg.deadstar ? &deathstar : NULL, seed, paused);
         }
         EndDrawing();
 
@@ -417,6 +467,9 @@ int main(int argc, char **argv)
         printf("Entidades         : %u vivas, pico de indice %u de %u\n",
                world->alive, world->highWater, world->capacity);
         printf("Semilla           : %u\n", seed);
+        if (cfg.deadstar) {
+            printf("Deadstar          : %d sistema(s) destruido(s)\n", deathstar.kills);
+        }
     }
 
     free(tb);

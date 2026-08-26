@@ -58,6 +58,14 @@ typedef struct SolarSystems {
     float orbRad[MAX_SYSTEMS];  /* radio de orbita alrededor del ancla */
     float orbAng[MAX_SYSTEMS];  /* angulo actual (rad)                 */
     float orbSpd[MAX_SYSTEMS];  /* velocidad angular (rad/s), con signo */
+
+    /* Layout de rejilla de spawn_solar_systems, guardado para que
+     * spawn_one_system pueda hacer nacer un sistema nuevo (p.ej. tras un
+     * impacto de la Estrella de la Muerte) con la misma geometria que los del
+     * arranque, sin recalcular ni duplicar constantes. */
+    int   gridCols, gridRows;
+    float cellW, cellH, cellR;
+    float sunRad, planetRef, jitter;
 } SolarSystems;
 
 /* Crea una estrella de fondo efimera (C_POS|C_RENDER|C_TWINKLE|C_LIFE).
@@ -68,5 +76,19 @@ Entity spawn_star(World *w, Rng *rng, float screenW, float screenH);
  * Sobreescribe por completo el contenido de ss. */
 void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
                          int n, float screenW, float screenH);
+
+/* Hace nacer un sistema mas al final de ss (ss->count++), reusando el layout
+ * de rejilla guardado por spawn_solar_systems. Celda al azar (solaparse con
+ * un sistema vivo es aceptado, igual que en el spawn inicial) y ancla = la
+ * que tenga menos sistemas ahora mismo (empate = volado), para no romper el
+ * balance 50/50 sin volver a un volado independiente por sistema. Devuelve el
+ * indice del sistema nuevo, o -1 si ss o el World ya estan llenos. */
+int spawn_one_system(World *w, SolarSystems *ss, Rng *rng);
+
+/* Destruye el sol y los planetas del sistema s (ecs_destroy), compacta la
+ * tabla de anillos aplanada y hace swap-remove del slot s con el ultimo
+ * sistema. Tras esto los indices de sistema >= s pueden apuntar a otro
+ * sistema: el llamador no puede asumir que el orden se mantiene. */
+void solar_system_remove(World *w, SolarSystems *ss, int s);
 
 #endif /* SPAWN_H */

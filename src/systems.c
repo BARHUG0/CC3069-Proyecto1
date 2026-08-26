@@ -224,6 +224,82 @@ void sys_trails(const World *w, TrailBuffer *tb, float dt)
     }
 }
 
+/* Swap-remove de la columna b: copia la ultima columna encima y acorta
+ * bodyCount. Recorre las TRAIL_LEN filas, no solo [oldest,head): el layout es
+ * [muestra][cuerpo], asi que mover una columna entera es un salto de tamano
+ * bodyCount por fila. */
+static void trails_drop_column(TrailBuffer *tb, int b)
+{
+    const int last = tb->bodyCount - 1;
+    if (b != last) {
+        for (int k = 0; k < TRAIL_LEN; ++k) {
+            tb->x[k][b] = tb->x[k][last];
+            tb->y[k][b] = tb->y[k][last];
+        }
+        tb->body[b] = tb->body[last];
+        tb->cr[b]   = tb->cr[last];
+        tb->cg[b]   = tb->cg[last];
+        tb->cb[b]   = tb->cb[last];
+    }
+    tb->bodyCount--;
+}
+
+static int trails_find_body(const TrailBuffer *tb, Entity e)
+{
+    for (int b = 0; b < tb->bodyCount; ++b) {
+        if (tb->body[b] == e) {
+            return b;
+        }
+    }
+    return -1;
+}
+
+static void trails_append_body(TrailBuffer *tb, const World *w, Entity e)
+{
+    if (tb->bodyCount >= MAX_TRAIL_BODIES) {
+        return;
+    }
+    const int b = tb->bodyCount++;
+    tb->body[b] = e;
+    tb->cr[b]   = w->cr[e];
+    tb->cg[b]   = w->cg[e];
+    tb->cb[b]   = w->cb[e];
+    for (int k = 0; k < TRAIL_LEN; ++k) {
+        tb->x[k][b] = w->px[e];
+        tb->y[k][b] = w->py[e];
+    }
+}
+
+void trails_drop_system(TrailBuffer *tb, const SolarSystems *ss, int s)
+{
+    if (ss->sun[s] != ECS_INVALID) {
+        const int b = trails_find_body(tb, ss->sun[s]);
+        if (b >= 0) {
+            trails_drop_column(tb, b);
+        }
+    }
+    const int first = ss->ringFirst[s];
+    const int last  = first + ss->planetCount[s];
+    for (int i = first; i < last; ++i) {
+        const int b = trails_find_body(tb, ss->ringEntity[i]);
+        if (b >= 0) {
+            trails_drop_column(tb, b);
+        }
+    }
+}
+
+void trails_add_system(TrailBuffer *tb, const World *w, const SolarSystems *ss, int s)
+{
+    if (ss->sun[s] != ECS_INVALID) {
+        trails_append_body(tb, w, ss->sun[s]);
+    }
+    const int first = ss->ringFirst[s];
+    const int last  = first + ss->planetCount[s];
+    for (int i = first; i < last; ++i) {
+        trails_append_body(tb, w, ss->ringEntity[i]);
+    }
+}
+
 /* --- render ------------------------------------------------------------- */
 
 static void render_starfield(const World *w)

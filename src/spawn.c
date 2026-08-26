@@ -1,6 +1,7 @@
 #include "spawn.h"
 
 #include <math.h>
+#include <string.h>
 
 /* Paletas fijas (no hay razon para generar color libre: los colores estelares
  * reales caen en una banda estrecha del azul al ambar).
@@ -137,6 +138,89 @@ static Entity spawn_planet(World *w, Rng *rng, float cx, float cy,
     return e;
 }
 
+/* Cuerpo compartido entre spawn_solar_systems y spawn_one_system: crea sol +
+ * planetas del sistema s en (cx,cy), orbitando la ancla anchorIdx, con la
+ * geometria de rejilla ya guardada en ss (cellR/sunRad/planetRef). Asume
+ * s < MAX_SYSTEMS; el llamador es quien decide si s es un slot nuevo o uno
+ * reciclado y ajusta ss->count. */
+static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
+                                   int s, float cx, float cy, int anchorIdx)
+{
+    ss->anchor[s] = anchorIdx;
+
+    /* Radio y angulo de orbita: geometria real hacia el ancla sorteada, no un
+     * sorteo acotado a la mitad del ancla. Un sistema nacido en una mitad
+     * orbitando el ancla de la otra barre ambas. */
+    const float dx = cx - ss->anchorX[anchorIdx];
+    const float dy = cy - ss->anchorY[anchorIdx];
+    const float radius = sqrtf(dx * dx + dy * dy);
+    const float angle  = atan2f(dy, dx);
+
+    /* Velocidad angular derivada de una velocidad lineal fija (~25-70 px/s),
+     * no un rad/s fijo: con radios que varian mucho (~0 a ~1000px), un rad/s
+     * fijo haria que los sistemas de radio grande volaran por la pantalla. */
+    const float v = rng_range(rng, 25.0f, 70.0f);
+    float ospd = (radius > 1.0f) ? v / radius : 0.3f;
+    ospd = rng_sign(rng) * clampf(ospd, 0.03f, 0.5f);
+
+    ss->orbRad[s] = radius;
+    ss->orbAng[s] = angle;
+    ss->orbSpd[s] = ospd;
+
+    ss->cx[s]        = cx;
+    ss->cy[s]        = cy;
+    ss->ringFirst[s] = ss->ringTotal;
+    ss->sun[s]       = spawn_sun(w, rng, cx, cy, ss->sunRad);
+
+    const int planets = MIN_PLANETS +
+        (int)rng_below(rng, (uint32_t)(MAX_PLANETS_PER_SYS - MIN_PLANETS + 1));
+
+    /* Velocidad de referencia del sistema: cada sistema gira a su ritmo. */
+    const float baseSpeed = rng_range(rng, 0.35f, 0.85f);
+    const float spin      = rng_sign(rng); /* algunos sistemas retrogrados */
+
+    int created = 0;
+    for (int i = 0; i < planets; ++i) {
+        if (ss->ringTotal >= MAX_PLANETS_TOTAL) {
+            break;
+        }
+
+        /* Radios escalonados de 0.26 a 1.0 del radio de celda. */
+        const float frac = 0.26f + 0.74f * ((float)(i + 1) / (float)planets)
+                                 + rng_range(rng, -0.025f, 0.025f);
+        float rx = ss->cellR * frac;
+        float ry = rx * rng_range(rng, 0.45f, 1.0f); /* elipse achatada */
+
+        const float pr = ss->planetRef * rng_range(rng, 0.65f, 1.35f);
+
+        /* Que el planeta no quede dentro del sol. */
+        const float minR = ss->sunRad + pr + 3.0f;
+        if (rx < minR) rx = minR;
+        if (ry < minR) ry = minR;
+
+        /* Tercera ley de Kepler aproximada: T^2 ~ a^3, luego w ~ a^-1.5.
+         * Los planetas interiores giran mas rapido que los exteriores. */
+        float speed = baseSpeed * powf(ss->cellR / rx, 1.5f);
+        speed = clampf(speed, 0.05f, 3.0f) * spin;
+
+        const Entity pe = spawn_planet(w, rng, cx, cy, rx, ry, speed, pr);
+        if (pe == ECS_INVALID) {
+            break; /* mundo lleno */
+        }
+
+        ss->ringCx[ss->ringTotal]     = cx;
+        ss->ringCy[ss->ringTotal]     = cy;
+        ss->ringRx[ss->ringTotal]     = rx;
+        ss->ringRy[ss->ringTotal]     = ry;
+        ss->ringEntity[ss->ringTotal] = pe;
+        ss->ringTotal++;
+        created++;
+    }
+
+    ss->planetCount[s]  = created;
+    ss->totalPlanets   += created;
+}
+
 void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
                          int n, float screenW, float screenH)
 {
@@ -152,15 +236,17 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
     const int cols = (int)ceilf(sqrtf((float)n));
     const int rows = (int)ceilf((float)n / (float)cols);
 
-    const float cellW = screenW / (float)cols;
-    const float cellH = screenH / (float)rows;
+    ss->gridCols = cols;
+    ss->gridRows = rows;
+    ss->cellW    = screenW / (float)cols;
+    ss->cellH    = screenH / (float)rows;
 
     /* 0.42 deja un margen entre celdas vecinas para que los anillos exteriores
      * de dos sistemas no se toquen. */
-    const float cellR = 0.42f * ((cellW < cellH) ? cellW : cellH);
+    ss->cellR = 0.42f * ((ss->cellW < ss->cellH) ? ss->cellW : ss->cellH);
 
-    const float sunRad    = clampf(cellR * 0.16f, 2.5f, 10.0f);
-    const float planetRef = clampf(cellR * 0.055f, 1.2f, 5.0f);
+    ss->sunRad    = clampf(ss->cellR * 0.16f, 2.5f, 10.0f);
+    ss->planetRef = clampf(ss->cellR * 0.055f, 1.2f, 5.0f);
 
     /* Dos anclas fijas, una por mitad de pantalla. */
     ss->anchorX[0] = screenW * 0.25f;
@@ -170,7 +256,7 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
 
     /* Jitter chico para que la rejilla de posiciones no se note pero los
      * sistemas no se toquen al nacer. */
-    const float jitter = 0.12f * ((cellW < cellH) ? cellW : cellH);
+    ss->jitter = 0.12f * ((ss->cellW < ss->cellH) ? ss->cellW : ss->cellH);
 
     /* Reparto barajado, no un volado independiente por sistema: con N chico
      * (el caso tipico) unos cuantos volados de moneda pueden caer 8 a 2 por
@@ -192,87 +278,95 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
     }
 
     for (int s = 0; s < n; ++s) {
-        const int anchorIdx = assign[s];
-        ss->anchor[s] = anchorIdx;
-
         /* Posicion propia del sistema: rejilla + jitter, sin mirar el ancla
          * que le toco. Puede caer en cualquier mitad de pantalla. */
         const int col = s % cols;
         const int row = s / cols;
-        const float cx = (col + 0.5f) * cellW + rng_range(rng, -jitter, jitter);
-        const float cy = (row + 0.5f) * cellH + rng_range(rng, -jitter, jitter);
+        const float cx = (col + 0.5f) * ss->cellW + rng_range(rng, -ss->jitter, ss->jitter);
+        const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
-        /* Radio y angulo de orbita: geometria real hacia el ancla sorteada,
-         * no un sorteo acotado a la mitad del ancla. Un sistema nacido en una
-         * mitad orbitando el ancla de la otra barre ambas. */
-        const float dx = cx - ss->anchorX[anchorIdx];
-        const float dy = cy - ss->anchorY[anchorIdx];
-        const float radius = sqrtf(dx * dx + dy * dy);
-        const float angle  = atan2f(dy, dx);
-
-        /* Velocidad angular derivada de una velocidad lineal fija (~25-70
-         * px/s), no un rad/s fijo: con radios que ahora varian mucho (~0 a
-         * ~1000px), un rad/s fijo haria que los sistemas de radio grande
-         * volaran por la pantalla. */
-        const float v = rng_range(rng, 25.0f, 70.0f);
-        float ospd = (radius > 1.0f) ? v / radius : 0.3f;
-        ospd = rng_sign(rng) * clampf(ospd, 0.03f, 0.5f);
-
-        ss->orbRad[s] = radius;
-        ss->orbAng[s] = angle;
-        ss->orbSpd[s] = ospd;
-
-        ss->cx[s]        = cx;
-        ss->cy[s]        = cy;
-        ss->ringFirst[s] = ss->ringTotal;
-        ss->sun[s]       = spawn_sun(w, rng, cx, cy, sunRad);
-
-        const int planets = MIN_PLANETS +
-            (int)rng_below(rng, (uint32_t)(MAX_PLANETS_PER_SYS - MIN_PLANETS + 1));
-
-        /* Velocidad de referencia del sistema: cada sistema gira a su ritmo. */
-        const float baseSpeed = rng_range(rng, 0.35f, 0.85f);
-        const float spin      = rng_sign(rng); /* algunos sistemas retrogrados */
-
-        int created = 0;
-        for (int i = 0; i < planets; ++i) {
-            if (ss->ringTotal >= MAX_PLANETS_TOTAL) {
-                break;
-            }
-
-            /* Radios escalonados de 0.26 a 1.0 del radio de celda. */
-            const float frac = 0.26f + 0.74f * ((float)(i + 1) / (float)planets)
-                                     + rng_range(rng, -0.025f, 0.025f);
-            float rx = cellR * frac;
-            float ry = rx * rng_range(rng, 0.45f, 1.0f); /* elipse achatada */
-
-            const float pr = planetRef * rng_range(rng, 0.65f, 1.35f);
-
-            /* Que el planeta no quede dentro del sol. */
-            const float minR = sunRad + pr + 3.0f;
-            if (rx < minR) rx = minR;
-            if (ry < minR) ry = minR;
-
-            /* Tercera ley de Kepler aproximada: T^2 ~ a^3, luego w ~ a^-1.5.
-             * Los planetas interiores giran mas rapido que los exteriores. */
-            float speed = baseSpeed * powf(cellR / rx, 1.5f);
-            speed = clampf(speed, 0.05f, 3.0f) * spin;
-
-            const Entity pe = spawn_planet(w, rng, cx, cy, rx, ry, speed, pr);
-            if (pe == ECS_INVALID) {
-                break; /* mundo lleno */
-            }
-
-            ss->ringCx[ss->ringTotal]     = cx;
-            ss->ringCy[ss->ringTotal]     = cy;
-            ss->ringRx[ss->ringTotal]     = rx;
-            ss->ringRy[ss->ringTotal]     = ry;
-            ss->ringEntity[ss->ringTotal] = pe;
-            ss->ringTotal++;
-            created++;
-        }
-
-        ss->planetCount[s]  = created;
-        ss->totalPlanets   += created;
+        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s]);
     }
+}
+
+int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
+{
+    if (ss->count >= MAX_SYSTEMS) {
+        return -1;
+    }
+
+    /* Ancla = la que tenga menos sistemas ahora mismo (empate = volado):
+     * conserva el balance 50/50 sin volver a un volado independiente por
+     * sistema (ver el comentario de spawn_solar_systems sobre por que se
+     * rechazo esa opcion). */
+    int count0 = 0, count1 = 0;
+    for (int i = 0; i < ss->count; ++i) {
+        if (ss->anchor[i] == 0) count0++; else count1++;
+    }
+    const int anchorIdx = (count0 != count1) ? (count0 < count1 ? 0 : 1)
+                                              : (int)rng_below(rng, 2u);
+
+    /* Celda al azar de la misma rejilla del spawn inicial. Solaparse con un
+     * sistema vivo es aceptado a proposito, igual que en el spawn inicial. */
+    const int col = (int)rng_below(rng, (uint32_t)ss->gridCols);
+    const int row = (int)rng_below(rng, (uint32_t)ss->gridRows);
+    const float cx = (col + 0.5f) * ss->cellW + rng_range(rng, -ss->jitter, ss->jitter);
+    const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
+
+    const int s = ss->count;
+    spawn_system_into_slot(w, ss, rng, s, cx, cy, anchorIdx);
+    ss->count++;
+    return s;
+}
+
+void solar_system_remove(World *w, SolarSystems *ss, int s)
+{
+    if (s < 0 || s >= ss->count) {
+        return;
+    }
+
+    const int first = ss->ringFirst[s];
+    const int cnt   = ss->planetCount[s];
+
+    if (ss->sun[s] != ECS_INVALID) {
+        ecs_destroy(w, ss->sun[s]);
+    }
+    for (int i = first; i < first + cnt; ++i) {
+        ecs_destroy(w, ss->ringEntity[i]);
+    }
+
+    /* Compactar la tabla de anillos: sin esto ringTotal nunca recicla y tras
+     * unos cientos de muertes topa en MAX_PLANETS_TOTAL, dejando de nacer
+     * planetas nuevos. */
+    const int tail = ss->ringTotal - (first + cnt);
+    if (tail > 0) {
+        memmove(&ss->ringCx[first],     &ss->ringCx[first + cnt],     (size_t)tail * sizeof(float));
+        memmove(&ss->ringCy[first],     &ss->ringCy[first + cnt],     (size_t)tail * sizeof(float));
+        memmove(&ss->ringRx[first],     &ss->ringRx[first + cnt],     (size_t)tail * sizeof(float));
+        memmove(&ss->ringRy[first],     &ss->ringRy[first + cnt],     (size_t)tail * sizeof(float));
+        memmove(&ss->ringEntity[first], &ss->ringEntity[first + cnt], (size_t)tail * sizeof(Entity));
+    }
+    ss->ringTotal    -= cnt;
+    ss->totalPlanets -= cnt;
+
+    for (int t = 0; t < ss->count; ++t) {
+        if (ss->ringFirst[t] > first) {
+            ss->ringFirst[t] -= cnt;
+        }
+    }
+
+    /* Swap-remove del slot s con el ultimo sistema. */
+    const int last = ss->count - 1;
+    if (s != last) {
+        ss->cx[s]          = ss->cx[last];
+        ss->cy[s]          = ss->cy[last];
+        ss->sun[s]         = ss->sun[last];
+        ss->planetCount[s] = ss->planetCount[last];
+        ss->ringFirst[s]   = ss->ringFirst[last];
+        ss->anchor[s]      = ss->anchor[last];
+        ss->orbRad[s]      = ss->orbRad[last];
+        ss->orbAng[s]      = ss->orbAng[last];
+        ss->orbSpd[s]      = ss->orbSpd[last];
+    }
+    ss->count--;
 }

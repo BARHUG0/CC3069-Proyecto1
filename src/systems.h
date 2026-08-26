@@ -92,6 +92,17 @@ void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss);
 /* Empuja una rebanada de posiciones cuando toca (a TRAIL_HZ). */
 void sys_trails(const World *w, TrailBuffer *tb, float dt);
 
+/* Alta/baja incremental de un sistema completo (sol + planetas) en tb, sin
+ * tocar los demas cuerpos ni el historial compartido head/fill. Llamar
+ * trails_drop_system ANTES de solar_system_remove: despues ya no se sabe que
+ * entidades tenia el sistema s. trails_add_system siembra las TRAIL_LEN
+ * muestras con la posicion actual, para que la estela nueva arranque como un
+ * punto (head/fill son un eje de tiempo compartido por todos los cuerpos; sin
+ * sembrar, las muestras viejas de esa columna quedarian con basura de lo que
+ * sea que ocupara antes ese slot). */
+void trails_drop_system(TrailBuffer *tb, const SolarSystems *ss, int s);
+void trails_add_system(TrailBuffer *tb, const World *w, const SolarSystems *ss, int s);
+
 /* alpha = twBase + twAmp * sin(twFreq * t + twPhase). Solo lectura/escritura
  * por entidad, sin variables compartidas: paralelizable tal cual. */
 void sys_twinkle(World *w, float t);
