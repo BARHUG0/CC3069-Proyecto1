@@ -2,12 +2,19 @@
 
 #include <math.h>
 
+#include "raymath.h"
+
 #define DS_TWO_PI      6.2831853f
-#define DS_DEG2RAD     0.0174532925f
 #define DS_CHARGE_SECS 0.9f
 #define DS_FIRE_SECS   0.35f
 #define DS_EXP_DUR     1.6f
 #define DS_SHOCK_MAXR  140.0f
+
+/* El ojo vive siempre a un lado del cuerpo, nunca en el centro (ver
+ * deathstar.h): azimut fijo desde el polo frontal, mas una leve inclinacion
+ * hacia el hemisferio norte, como en las referencias de la nave. */
+#define DS_DISH_AZ_DEG 42.0f
+#define DS_DISH_EL_DEG 15.0f
 
 static float ds_clampf(float v, float lo, float hi)
 {
@@ -21,26 +28,135 @@ static unsigned char ds_alpha8(float a)
     return (unsigned char)(ds_clampf(a, 0.0f, 1.0f) * 255.0f);
 }
 
+/* --- texturas procedurales -------------------------------------------------
+ * Sin archivos de asset: todo con GenImageColor + Image*. */
+
+/* Cuerpo: GenMeshSphere, u = longitud [0,1) en X de textura, v = latitud
+ * [0,1] en Y de textura (0 = polo norte, 1 = polo sur) — convencion estandar,
+ * confirmada dibujando UNA banda a la vez y mirando el resultado real sobre
+ * la esfera (rondas anteriores de esta sesion habian invertido esto dos
+ * veces por leer mal una prueba ambigua; esta vez la prueba fue una banda
+ * rellena, sin ambiguedad: X constante -> arco vertical polo a polo
+ * (meridiano); Y constante -> anillo horizontal a latitud fija (paralelo)).
+ * Por eso:
+ *   - paneles verticales (meridianos) -> lineas de X constante (bucle "for x").
+ *   - paneles horizontales (paralelos) -> lineas de Y constante (bucle "for y").
+ *   - trinchera ecuatorial (anillo a latitud fija = ecuador) -> banda
+ *     HORIZONTAL en la imagen (Y constante, ancho completo en X). Vista de
+ *     frente se ve como un anillo limpio cruzando el ecuador; vista casi de
+ *     canto (en ciertos angulos de rotacion) se ve como una cuna angosta por
+ *     el escorzo normal de una banda plana en perspectiva — inevitable con
+ *     cualquier motor 3D sin trucos extra, no es un bug de eje. */
+static Texture2D ds_build_skin(Rng *rng)
+{
+    const int texW = 512, texH = 256;
+    Image img = GenImageColor(texW, texH, (Color){ 150, 150, 156, 255 });
+
+    /* Meridianos (verticales) + paralelos (horizontales) — rejilla completa. */
+    for (int x = 0; x < texW; x += 32) {
+        ImageDrawLine(&img, x, 0, x, texH - 1, (Color){ 92, 92, 100, 255 });
+    }
+    for (int y = 0; y < texH; y += 16) {
+        ImageDrawLine(&img, 0, y, texW - 1, y, (Color){ 92, 92, 100, 255 });
+    }
+
+    const int eqY  = texH / 2;
+    const int half = 8;
+    ImageDrawRectangle(&img, 0, eqY - half, texW, half * 2, (Color){ 68, 68, 76, 255 });
+    ImageDrawLine(&img, 0, eqY, texW - 1, eqY, (Color){ 36, 36, 42, 255 });
+
+    for (int i = 0; i < 140; ++i) {
+        const int lx = (int)rng_range(rng, 0.0f, (float)texW);
+        const int ly = (int)rng_range(rng, 4.0f, (float)(texH - 4));
+        ImageDrawCircle(&img, lx, ly, 1, (Color){ 255, 214, 110, 255 });
+    }
+
+    const Texture2D tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    return tex;
+}
+
+/* Ojo: degradado radial concentrico horneado en una textura real (128x128),
+ * aplicado a la cara del plato — reemplaza el truco de v2 (circulos 2D
+ * superpuestos) por una textura de verdad, ahora que hay GPU otra vez. */
+static Texture2D ds_build_dish_skin(void)
+{
+    const int size = 128;
+    const int cx = size / 2, cy = size / 2;
+    Image img = GenImageColor(size, size, (Color){ 40, 44, 40, 255 });
+
+    ImageDrawCircle(&img, cx, cy, size / 2,             (Color){ 62, 65, 60, 255 });
+    ImageDrawCircle(&img, cx, cy, (int)(size * 0.40f),  (Color){ 84, 88, 80, 255 });
+    ImageDrawCircle(&img, cx, cy, (int)(size * 0.30f),  (Color){ 52, 58, 52, 255 });
+    ImageDrawCircle(&img, cx, cy, (int)(size * 0.18f),  (Color){ 30, 36, 32, 255 });
+    ImageDrawCircle(&img, cx, cy, (int)(size * 0.08f),  (Color){ 140, 255, 175, 255 });
+    ImageDrawCircle(&img, cx - size / 5, cy - size / 5, size / 11, (Color){ 225, 235, 225, 255 });
+    ImageDrawCircleLines(&img, cx, cy, size / 2 - 1, (Color){ 20, 22, 20, 255 });
+
+    const Texture2D tex = LoadTextureFromImage(img);
+    UnloadImage(img);
+    return tex;
+}
+
+/* Reposiciona el ojo segun ds->dishSide. Independiente de ds->spin a
+ * proposito: si siguiera la rotacion del cuerpo, en cada vuelta pasaria por
+ * el centro. Solo se llama cuando dishSide cambia (al elegir cada disparo
+ * nuevo), no cada frame. */
+static void ds_place_dish(DeathStar *ds)
+{
+    const float az = DS_DISH_AZ_DEG * DEG2RAD;
+    const float el = DS_DISH_EL_DEG * DEG2RAD;
+
+    Vector3 n = {
+        (float)ds->dishSide * sinf(az) * cosf(el),
+        sinf(el),
+        cosf(az) * cosf(el)
+    };
+    n = Vector3Normalize(n);
+    ds->dishPos = Vector3Scale(n, ds->worldR);
+
+    const Vector3 up = { 0.0f, 1.0f, 0.0f };
+    const float   d  = Vector3DotProduct(up, n);
+    if (d > 0.9999f) {
+        ds->dishRotAxis  = (Vector3){ 1.0f, 0.0f, 0.0f };
+        ds->dishRotAngle = 0.0f;
+    } else if (d < -0.9999f) {
+        ds->dishRotAxis  = (Vector3){ 1.0f, 0.0f, 0.0f };
+        ds->dishRotAngle = 180.0f;
+    } else {
+        ds->dishRotAxis  = Vector3Normalize(Vector3CrossProduct(up, n));
+        ds->dishRotAngle = acosf(ds_clampf(d, -1.0f, 1.0f)) * RAD2DEG;
+    }
+}
+
 void deathstar_load(DeathStar *ds, Rng *rng, float secs)
 {
-    ds->spin     = 0.0f;
-    ds->bodyFrac = 0.34f;
-    ds->dishFrac = 0.22f; /* chico, y siempre en el centro: ver deathstar.h */
+    ds->cam.position   = (Vector3){ 0.0f, 0.0f, 6.0f };
+    ds->cam.target     = (Vector3){ 0.0f, 0.0f, 0.0f };
+    ds->cam.up         = (Vector3){ 0.0f, 1.0f, 0.0f };
+    ds->cam.fovy       = 45.0f;
+    ds->cam.projection = CAMERA_PERSPECTIVE;
 
-    /* Luces amarillas por todo el disco: muestreo uniforme en area (raiz
-     * cuadrada del radio, no el radio mismo, o se amontonarian en el centro)
-     * entre el borde del ojo y el borde del cuerpo. Offsets normalizados
-     * (se escalan por el radio real del cuerpo al dibujar) y fijos desde
-     * aqui, para que no salten de frame a frame. */
-    ds->lightCount = DS_MAX_LIGHTS;
-    for (int i = 0; i < DS_MAX_LIGHTS; ++i) {
-        const float ang = rng_range(rng, 0.0f, DS_TWO_PI);
-        const float rad = ds->dishFrac * 1.4f +
-            sqrtf(rng_f01(rng)) * (0.94f - ds->dishFrac * 1.4f);
-        ds->lightDX[i] = cosf(ang) * rad;
-        ds->lightDY[i] = sinf(ang) * rad;
-        ds->lightR[i]  = rng_range(rng, 0.010f, 0.020f);
-    }
+    /* worldR no depende de la resolucion: GetWorldToScreen/el proyector de
+     * raylib cubren el alto completo de la ventana con fovy en Y sin
+     * importar el ancho, asi que este radio ocupa siempre la misma fraccion
+     * de pantalla y el resize no toca nada. */
+    const float frac = 0.30f;
+    ds->worldR = frac * ds->cam.position.z * tanf(ds->cam.fovy * 0.5f * DEG2RAD);
+    ds->dishR  = ds->worldR * 0.22f;
+    const float dishH = ds->dishR * 0.16f;
+
+    ds->skin = ds_build_skin(rng);
+    ds->body = LoadModelFromMesh(GenMeshSphere(ds->worldR, 24, 32));
+    SetMaterialTexture(&ds->body.materials[0], MATERIAL_MAP_DIFFUSE, ds->skin);
+
+    ds->dishSkin = ds_build_dish_skin();
+    ds->dish     = LoadModelFromMesh(GenMeshCylinder(ds->dishR, dishH, 24));
+    SetMaterialTexture(&ds->dish.materials[0], MATERIAL_MAP_DIFFUSE, ds->dishSkin);
+
+    ds->spin     = 0.0f;
+    ds->dishSide = (rng_below(rng, 2u) == 0u) ? 1 : -1;
+    ds_place_dish(ds);
 
     ds->aimX  = 0.0f;
     ds->aimY  = 0.0f;
@@ -52,6 +168,14 @@ void deathstar_load(DeathStar *ds, Rng *rng, float secs)
      * enorme) y el primer disparo nunca llega. */
     ds->interval = (secs > 0.0f) ? secs : 5.0f;
     deathstar_reset(ds);
+}
+
+void deathstar_unload(DeathStar *ds)
+{
+    UnloadModel(ds->body);
+    UnloadModel(ds->dish);
+    UnloadTexture(ds->skin);
+    UnloadTexture(ds->dishSkin);
 }
 
 void deathstar_reset(DeathStar *ds)
@@ -113,7 +237,7 @@ static void ds_update_explosions(DeathStar *ds, float dt)
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt)
 {
-    ds->spin += 4.0f * dt; /* grados/seg, una vuelta cada 90s */
+    ds->spin += 6.0f * dt; /* grados/seg, una vuelta cada 60s */
     if (ds->spin >= 360.0f) {
         ds->spin -= 360.0f;
     }
@@ -129,8 +253,17 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
     case DS_IDLE:
         ds->timer -= dt;
         if (ds->timer <= 0.0f) {
-            ds->aimX  = rng_range(rng, 0.0f, screenW);
-            ds->aimY  = rng_range(rng, 0.0f, screenH);
+            /* El ojo alterna de lado en cada disparo (decision explicita del
+             * usuario) — se decide ANTES de elegir el objetivo, para que el
+             * objetivo quede acotado a esa mitad: el ojo nunca dispara al
+             * lado contrario de donde esta. */
+            ds->dishSide = -ds->dishSide;
+            ds_place_dish(ds);
+
+            const float halfW = screenW * 0.5f;
+            ds->aimX = (ds->dishSide < 0) ? rng_range(rng, 0.0f, halfW)
+                                          : rng_range(rng, halfW, screenW);
+            ds->aimY = rng_range(rng, 0.0f, screenH);
             ds->phase = DS_CHARGE;
             ds->timer = DS_CHARGE_SECS;
         }
@@ -190,75 +323,28 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
     }
 }
 
-/* --- render -----------------------------------------------------------
- * Todo en 2D, con las mismas primitivas que sys_render (DrawCircleV,
- * DrawLineEx...): nada de Camera3D/Model ni sombreado falso — el cuerpo es
- * un disco plano con paneles, igual de "flat" que soles y planetas. */
+/* --- render ----------------------------------------------------------- */
 
-static void ds_render_body(const DeathStar *ds, float cx, float cy, float bodyR)
-{
-    DrawCircleV((Vector2){ cx, cy }, bodyR, (Color){ 150, 150, 156, 255 });
-
-    /* Paneles: anillos concentricos + radios, como un esquema tecnico. */
-    for (int i = 1; i <= 4; ++i) {
-        DrawCircleLines((int)cx, (int)cy, bodyR * (float)i / 5.0f, (Color){ 110, 110, 118, 150 });
-    }
-    const float dishR = bodyR * ds->dishFrac;
-    const int   spokes = 12;
-    for (int i = 0; i < spokes; ++i) {
-        const float a  = ds->spin * DS_DEG2RAD + (float)i * (DS_TWO_PI / (float)spokes);
-        const float ca = cosf(a), sa = sinf(a);
-        const Vector2 p0 = { cx + ca * dishR * 1.15f, cy + sa * dishR * 1.15f };
-        const Vector2 p1 = { cx + ca * bodyR,         cy + sa * bodyR };
-        DrawLineEx(p0, p1, 1.0f, (Color){ 110, 110, 118, 130 });
-    }
-
-    /* Trinchera ecuatorial: el ancho se calcula con el borde del circulo en
-     * el extremo mas angosto de la banda, asi nunca se sale del disco. */
-    const float trenchHalf = bodyR * 0.07f;
-    const float halfW = sqrtf(fmaxf(bodyR * bodyR - trenchHalf * trenchHalf, 0.0f));
-    DrawRectangle((int)(cx - halfW), (int)(cy - trenchHalf), (int)(halfW * 2.0f),
-                 (int)(trenchHalf * 2.0f), (Color){ 76, 76, 84, 255 });
-    DrawLineEx((Vector2){ cx - halfW, cy }, (Vector2){ cx + halfW, cy }, 1.0f,
-              (Color){ 40, 40, 46, 255 });
-
-    DrawCircleLines((int)cx, (int)cy, bodyR, (Color){ 55, 55, 62, 220 });
-
-    /* Luces amarillas por todo el disco, rotando con el spin. */
-    const float sa = sinf(ds->spin * DS_DEG2RAD), ca = cosf(ds->spin * DS_DEG2RAD);
-    for (int i = 0; i < ds->lightCount; ++i) {
-        const float dx = ds->lightDX[i], dy = ds->lightDY[i];
-        const Vector2 p = { cx + (dx * ca - dy * sa) * bodyR, cy + (dx * sa + dy * ca) * bodyR };
-        DrawCircleV(p, ds->lightR[i] * bodyR, (Color){ 255, 214, 110, 235 });
-    }
-}
-
-/* El ojo: chico y siempre en el centro geometrico del cuerpo (nunca se
- * desplaza ni rota para "apuntar" — el rayo mismo va del centro al objetivo).
- * Anillos concentricos que oscurecen hacia el centro + un brillo
- * especular desplazado dan sensacion de superficie concava, sin textura ni
- * shader: el mismo truco que ya usan los soles (halos concentricos, ver
- * render_suns en systems.c) aplicado con la gradacion invertida. */
-static void ds_render_dish(float cx, float cy, float dishR)
-{
-    DrawCircleV((Vector2){ cx, cy }, dishR,          (Color){ 72, 74, 72, 255 });
-    DrawCircleV((Vector2){ cx, cy }, dishR * 0.80f,  (Color){ 96, 100, 94, 255 });
-    DrawCircleV((Vector2){ cx, cy }, dishR * 0.58f,  (Color){ 60, 65, 60, 255 });
-    DrawCircleV((Vector2){ cx, cy }, dishR * 0.36f,  (Color){ 38, 44, 40, 255 });
-    DrawCircleV((Vector2){ cx, cy }, dishR * 0.16f,  (Color){ 130, 255, 165, 255 });
-    DrawCircleV((Vector2){ cx - dishR * 0.28f, cy - dishR * 0.30f }, dishR * 0.16f,
-               (Color){ 255, 255, 255, 80 });
-}
-
-/* Los 8 haces del borde del ojo convergen en un foco cerca del centro, y de
- * ahi sale un solo rayo grueso hasta el punto de impacto real. Como el ojo
- * ya no rota para apuntar, el rayo va derecho del centro al objetivo: no hay
- * forma de que "dispare al frente y no le pegue a nada". */
-static void ds_render_beam(const DeathStar *ds, float cx, float cy, float dishR)
+/* Los 8 haces del borde del ojo convergen en un foco cerca de la estacion, y
+ * de ahi sale un solo rayo grueso hasta el punto de impacto real. El ojo no
+ * se mueve segun el objetivo (vive a un lado fijo por disparo), asi que el
+ * rayo simplemente sale de donde el ojo este hacia el pixel real: no hay
+ * forma de que quede desalineado. */
+static void ds_render_beam(const DeathStar *ds)
 {
     if (ds->phase != DS_CHARGE && ds->phase != DS_FIRE) {
         return;
     }
+
+    const Vector3 up  = { 0.0f, 1.0f, 0.0f };
+    Vector3 nrm = Vector3Normalize(ds->dishPos);
+    Vector3 tangent = (fabsf(Vector3DotProduct(nrm, up)) > 0.98f)
+        ? Vector3CrossProduct(nrm, (Vector3){ 1.0f, 0.0f, 0.0f })
+        : Vector3CrossProduct(nrm, up);
+    tangent = Vector3Normalize(tangent);
+    const Vector3 bitangent = Vector3CrossProduct(nrm, tangent);
+
+    const Vector2 dishScreen = GetWorldToScreen(ds->dishPos, ds->cam);
 
     const float chargeT = (ds->phase == DS_FIRE) ? 1.0f
         : ds_clampf(1.0f - ds->timer / DS_CHARGE_SECS, 0.0f, 1.0f);
@@ -266,12 +352,15 @@ static void ds_render_beam(const DeathStar *ds, float cx, float cy, float dishR)
     Vector2 rim[8];
     for (int i = 0; i < 8; ++i) {
         const float theta = (float)i * (DS_TWO_PI / 8.0f);
-        rim[i] = (Vector2){ cx + cosf(theta) * dishR, cy + sinf(theta) * dishR };
+        const Vector3 p = Vector3Add(ds->dishPos,
+            Vector3Add(Vector3Scale(tangent, ds->dishR * cosf(theta)),
+                      Vector3Scale(bitangent, ds->dishR * sinf(theta))));
+        rim[i] = GetWorldToScreen(p, ds->cam);
     }
 
     const Vector2 focus = {
-        cx + (ds->aimX - cx) * 0.22f,
-        cy + (ds->aimY - cy) * 0.22f
+        dishScreen.x + (ds->aimX - dishScreen.x) * 0.18f,
+        dishScreen.y + (ds->aimY - dishScreen.y) * 0.18f
     };
 
     const Color beamColor = { 90, 255, 130, ds_alpha8(0.85f * chargeT) };
@@ -301,10 +390,8 @@ static void ds_render_explosions(const DeathStar *ds)
         const float t = ds_clampf(ds->expAge[i] / ds->expDur[i], 0.0f, 1.0f);
         const Vector2 c = { ds->expX[i], ds->expY[i] };
 
-        /* Onda expansiva. */
         DrawCircleLines((int)c.x, (int)c.y, t * DS_SHOCK_MAXR,
                         (Color){ 255, 200, 120, ds_alpha8((1.0f - t) * 0.7f) });
-        /* Destello que decae. */
         DrawCircleV(c, (1.0f - t) * 34.0f + 4.0f,
                    (Color){ 255, 230, 180, ds_alpha8((1.0f - t) * (1.0f - t)) });
 
@@ -327,13 +414,26 @@ static void ds_render_explosions(const DeathStar *ds)
 
 void deathstar_render(const DeathStar *ds, int screenW, int screenH)
 {
-    const float cx    = (float)screenW * 0.5f;
-    const float cy    = (float)screenH * 0.5f;
-    const float bodyR = ds->bodyFrac * (float)screenH * 0.5f;
-    const float dishR = bodyR * ds->dishFrac;
+    (void)screenW;
+    (void)screenH;
 
-    ds_render_body(ds, cx, cy, bodyR);
-    ds_render_dish(cx, cy, dishR);
-    ds_render_beam(ds, cx, cy, dishR);
+    BeginMode3D(ds->cam);
+
+    DrawModelEx(ds->body, (Vector3){ 0.0f, 0.0f, 0.0f }, (Vector3){ 0.0f, 1.0f, 0.0f },
+               ds->spin, (Vector3){ 1.0f, 1.0f, 1.0f }, WHITE);
+
+    /* DrawModelEx, no DrawMesh(mesh, material, MatrixMultiply(rot, trans)):
+     * la version con Matrix manual corrompia el render (la esfera salia
+     * gigante y recortada en una esquina, reproducible en frames concretos)
+     * — aislado con una prueba binaria (quitar el dibujo del ojo arreglaba
+     * el cuerpo), la causa no era la matriz en si (los valores eran finitos
+     * y sanos) sino la llamada a DrawMesh cruda. DrawModelEx logra la misma
+     * rotacion+traslacion y ya esta probado con el cuerpo. */
+    DrawModelEx(ds->dish, ds->dishPos, ds->dishRotAxis, ds->dishRotAngle,
+               (Vector3){ 1.0f, 1.0f, 1.0f }, WHITE);
+
+    EndMode3D();
+
+    ds_render_beam(ds);
     ds_render_explosions(ds);
 }

@@ -1,13 +1,18 @@
-/* deathstar.h - Modalidad opcional --deadstar: una Estrella de la Muerte 2D
+/* deathstar.h - Modalidad opcional --deadstar: una Estrella de la Muerte 3D
  * en el centro de la pantalla que dispara el superlaser cada cierto tiempo a
  * un punto al azar; si le pega a un sistema solar, lo destruye.
  *
- * Dibujada en 2D con las mismas primitivas que el resto de sys_render (nada
- * de Camera3D/Model): un circulo con paneles y trinchera, un "ojo" (el
- * superlaser) chico y SIEMPRE en el centro geometrico del circulo, y luces
- * amarillas repartidas por todo el disco. El ojo no rota para "apuntar": el
- * rayo mismo va del centro al objetivo, asi que no hay desalineacion entre
- * hacia donde mira el ojo y hacia donde pega el disparo.
+ * Modelo real (GenMeshSphere + GenMeshCylinder, Camera3D), no primitivas 2D:
+ * el cuerpo gira sobre su eje, y el "ojo" (plato del superlaser) es un
+ * elemento aparte, chico, texturizado con un degradado radial para que se
+ * lea cóncavo. El ojo NUNCA está en el centro del disco visible: vive
+ * siempre a un lado (izquierda o derecha, alternando en cada disparo) y su
+ * posicion es independiente de la rotacion del cuerpo — si rotara junto con
+ * la textura, en cada vuelta pasaria por el centro. El rayo sale de donde
+ * esté el ojo hacia el punto de impacto real (proyectado con
+ * GetWorldToScreen), asi que no hay forma de que "dispare al frente y no le
+ * pegue a nada": el punto final del rayo siempre es el pixel real del
+ * objetivo, sea cual sea la posicion del ojo.
  *
  * Mismo estilo del resto del ECS: nada de metodos ni struct por entidad. El
  * estado de la estacion es un solo struct (SoA para las explosiones, igual
@@ -32,7 +37,6 @@
 #include "spawn.h"
 #include "systems.h"
 
-#define DS_MAX_LIGHTS      56
 #define DS_MAX_EXPLOSIONS   8
 #define DS_EXP_PARTICLES   24
 
@@ -43,18 +47,22 @@ enum DeathStarPhase {
 };
 
 typedef struct DeathStar {
-    /* --- estacion, todo 2D --- */
-    float spin;      /* grados: gira el patron de paneles/luces, cosmetico */
-    float bodyFrac;  /* radio del cuerpo = bodyFrac * screenH/2            */
-    float dishFrac;  /* radio del ojo = dishFrac * radio del cuerpo        */
+    /* --- estacion 3D --- */
+    Model     body;     /* GenMeshSphere texturizada                */
+    Model     dish;     /* GenMeshCylinder achatado, el "ojo"        */
+    Texture2D skin;      /* textura procedural del cuerpo             */
+    Texture2D dishSkin;  /* degradado radial del plato (profundidad)  */
+    Camera3D  cam;
+    float     spin;      /* rotacion del cuerpo (grados), eje Y       */
+    float     worldR;    /* radio del cuerpo en unidades de mundo     */
+    float     dishR;     /* radio del plato en unidades de mundo      */
 
-    /* Luces amarillas: offsets fijos (generados una vez en deathstar_load)
-     * dentro del circulo unidad, para que no salten de frame a frame; se
-     * escalan por el radio del cuerpo y se rotan por spin al dibujar. */
-    int   lightCount;
-    float lightDX[DS_MAX_LIGHTS];
-    float lightDY[DS_MAX_LIGHTS];
-    float lightR[DS_MAX_LIGHTS];
+    /* Posicion/orientacion del plato. Se recalculan solo cuando cambia
+     * dishSide (cada disparo), no cada frame: no siguen a ds->spin. */
+    Vector3 dishPos;
+    Vector3 dishRotAxis;
+    float   dishRotAngle; /* grados */
+    int     dishSide;     /* +1 derecha, -1 izquierda; alterna por disparo */
 
     /* --- maquina de disparo --- */
     int   phase;
@@ -78,24 +86,23 @@ typedef struct DeathStar {
     float partSpd[DS_MAX_EXPLOSIONS * DS_EXP_PARTICLES];
 } DeathStar;
 
-/* Genera las luces amarillas fijas y arranca la maquina de disparo. No hay
- * recursos de GPU que cargar (todo se dibuja con primitivas 2D), asi que no
- * existe una deathstar_unload. */
+/* Construye modelos y texturas. Llamar tras InitWindow (GPU ya lista). */
 void deathstar_load(DeathStar *ds, Rng *rng, float secs);
+void deathstar_unload(DeathStar *ds); /* antes de CloseWindow */
 
-/* Reinicia la maquina de disparo y las explosiones activas (no las luces,
- * que son fijas). Se llama junto con build_scene (tecla R, cambio de
- * resolucion). */
+/* Reinicia la maquina de disparo y las explosiones activas, sin recrear
+ * modelos. Se llama junto con build_scene (tecla R, cambio de resolucion). */
 void deathstar_reset(DeathStar *ds);
 
 /* Avanza rotacion, maquina de disparo (con resolucion de impacto: destruye el
- * sistema alcanzado), explosiones y respawn incremental hasta targetN. */
+ * sistema alcanzado; alterna el lado del ojo en cada disparo nuevo),
+ * explosiones y respawn incremental hasta targetN. */
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt);
 
-/* Dibuja la estacion, el rayo y las explosiones, todo en 2D. Debe correr
- * entre BeginDrawing/EndDrawing, despues de sys_render: la estacion tapa a
- * los sistemas que le pasan por detras. */
+/* Dibuja la estacion (3D), el rayo y las explosiones (2D, proyectados con
+ * GetWorldToScreen). Debe correr entre BeginDrawing/EndDrawing, despues de
+ * sys_render: la estacion tapa a los sistemas que le pasan por detras. */
 void deathstar_render(const DeathStar *ds, int screenW, int screenH);
 
 #endif /* DEATHSTAR_H */

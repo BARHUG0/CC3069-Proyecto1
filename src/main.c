@@ -452,6 +452,9 @@ int main(int argc, char **argv)
     }
 
     const double elapsed = GetTime() - wallStart;
+    if (cfg.deadstar) {
+        deathstar_unload(&deathstar);
+    }
     CloseWindow();
 
     if (frame > 0 && elapsed > 0.0) {
