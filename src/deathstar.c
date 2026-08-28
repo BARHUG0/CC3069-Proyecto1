@@ -18,20 +18,46 @@
 #define DS_DISH_LOCAL_AZ_DEG 0.0f
 #define DS_DISH_EL_DEG       20.0f
 
-/* Velocidad de giro fija (la bandera --deadstar ya no lleva SECS): una
- * vuelta cada 10 s, y como se dispara una vez por vuelta (cuando el ojo pasa
- * por el frente, cruce de 360 grados), eso es un disparo cada ~10 s. */
-#define DS_SPIN_RATE_DEG 36.0f
+/* Velocidad de giro: ya no es constante (v5). DS_SPIN_RATE_DEG es la
+ * velocidad de crucero, lejos del frente; DS_SPIN_RATE_MIN es la velocidad
+ * justo al cruzar el frente (spin ~ 0/360, el instante del disparo) —
+ * frenar ahi le da tiempo a la carga/disparo a leerse en vez de que el ojo
+ * siga girando de largo mientras el rayo converge. DS_FRONT_EASE_DEG es el
+ * ancho (grados de spin, a cada lado del frente) de la zona donde se pasa
+ * de una velocidad a la otra con suavizado (smoothstep), no de golpe. */
+#define DS_SPIN_RATE_DEG   48.0f
+#define DS_SPIN_RATE_MIN    6.0f
+#define DS_FRONT_EASE_DEG  55.0f
 
 /* Periodo del respawn incremental (antes venia de SECS). */
 #define DS_RESPAWN_SECS 6.0f
 
-/* No dibujar el plato cuando su normal apunta lejos de la camara: visto de
- * canto el cilindro achatado degenera en una astilla oscura pegada al borde
- * de la silueta (confirmado tintandolo de rojo — era la "mancha gris" que se
- * reportaba). Con este umbral desaparece detras del borde antes de
- * degenerar y reaparece limpio al volver al frente. */
+/* Hundir el ojo en el cuerpo en vez de dejarlo apoyado sobre la superficie:
+ * se coloca a un radio menor que worldR, asi la esfera tapa el borde del
+ * plato con el z-test real (nada de sombreado truqueado) y se lee
+ * encajado/concavo en vez de flotando pegado encima. Fraccion de worldR. */
+#define DS_DISH_SINK_FRAC 0.03f
+
+/* El bisel del socket (ver deathstar_render) se dibuja mas hundido todavia
+ * que el ojo, no a la misma profundidad: si quedan coplanares, dos discos
+ * casi pegados a la misma distancia de camara generan z-fighting (patron de
+ * rayas parpadeando, visto en pruebas). Fraccion extra de worldR. */
+#define DS_DISH_BEZEL_EXTRA_SINK 0.025f
+
+/* El plato visto de canto degenera en una astilla oscura pegada al borde de
+ * la silueta (confirmado tintandolo de rojo — era la "mancha gris" que se
+ * reportaba). Sigue sin dibujarse por debajo de DS_DISH_CULL_Z (mismo
+ * umbral que antes evitaba la astilla), pero ya no aparece/desaparece de
+ * golpe ahi: se desvanece en alpha a lo largo de [CULL_Z, FADE_Z] de
+ * dishPos.z/worldR, así que el pop al dar la vuelta ya no se nota. */
 #define DS_DISH_CULL_Z 0.38f
+#define DS_DISH_FADE_Z 0.62f
+
+/* El objetivo del disparo ya no es uniforme en toda la pantalla: eso lo
+ * dejaba caer a veces muy cerca del centro (la propia nave), y un rayo tan
+ * corto se ve mal / no da sensacion de alcance. Se fuerza una distancia
+ * minima al centro de pantalla (fraccion del lado corto), con resampleo. */
+#define DS_AIM_MIN_DIST_FRAC 0.32f
 
 static float ds_clampf(float v, float lo, float hi)
 {
@@ -43,6 +69,36 @@ static float ds_clampf(float v, float lo, float hi)
 static unsigned char ds_alpha8(float a)
 {
     return (unsigned char)(ds_clampf(a, 0.0f, 1.0f) * 255.0f);
+}
+
+/* Velocidad de giro en funcion del spin actual: crucero lejos del frente,
+ * frenada suave (smoothstep) cerca de el — ver DS_SPIN_RATE_* arriba. */
+static float ds_spin_rate_deg(float spin)
+{
+    const float distFront = fminf(spin, 360.0f - spin); /* 0 en el frente */
+    float t = ds_clampf(distFront / DS_FRONT_EASE_DEG, 0.0f, 1.0f);
+    t = t * t * (3.0f - 2.0f * t); /* smoothstep: sin quiebre al entrar/salir */
+    return DS_SPIN_RATE_MIN + (DS_SPIN_RATE_DEG - DS_SPIN_RATE_MIN) * t;
+}
+
+/* Punto de impacto al azar, pero lejos del centro de pantalla (donde esta la
+ * estacion): resampleo simple hasta que cae fuera de un radio minimo, con
+ * tope de intentos por si el radio pedido no cupiera en pantalla. */
+static void ds_pick_aim(Rng *rng, float screenW, float screenH, float *outX, float *outY)
+{
+    const float cx = screenW * 0.5f, cy = screenH * 0.5f;
+    const float minDist = fminf(screenW, screenH) * DS_AIM_MIN_DIST_FRAC;
+    float x = cx, y = cy;
+    for (int tries = 0; tries < 20; ++tries) {
+        x = rng_range(rng, 0.0f, screenW);
+        y = rng_range(rng, 0.0f, screenH);
+        const float dx = x - cx, dy = y - cy;
+        if (dx * dx + dy * dy >= minDist * minDist) {
+            break;
+        }
+    }
+    *outX = x;
+    *outY = y;
 }
 
 /* --- texturas procedurales -------------------------------------------------
@@ -130,7 +186,7 @@ static void ds_place_dish(DeathStar *ds)
         cosf(az) * cosf(el)
     };
     n = Vector3Normalize(n);
-    ds->dishPos = Vector3Scale(n, ds->worldR);
+    ds->dishPos = Vector3Scale(n, ds->worldR * (1.0f - DS_DISH_SINK_FRAC));
 
     const Vector3 up = { 0.0f, 1.0f, 0.0f };
     const float   d  = Vector3DotProduct(up, n);
@@ -260,8 +316,9 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
 {
     /* Un disparo por vuelta: el cruce de 360 grados es el instante exacto en
      * que el ojo (az local 0) vuelve a mirar de frente a camara. Se detecta
-     * ANTES de envolver el spin, asi el cruce nunca se pierde. */
-    float rawSpin = ds->spin + DS_SPIN_RATE_DEG * dt;
+     * ANTES de envolver el spin, asi el cruce nunca se pierde. La velocidad
+     * de giro no es constante (ds_spin_rate_deg): se frena cerca del frente. */
+    float rawSpin = ds->spin + ds_spin_rate_deg(ds->spin) * dt;
     int atFront = 0;
     if (rawSpin >= 360.0f) {
         rawSpin -= 360.0f;
@@ -278,9 +335,9 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
     }
 
     if (atFront && ds->phase == DS_IDLE) {
-        /* Ojo de frente: objetivo a un punto al azar de toda la pantalla. */
-        ds->aimX  = rng_range(rng, 0.0f, screenW);
-        ds->aimY  = rng_range(rng, 0.0f, screenH);
+        /* Ojo de frente: objetivo al azar, lejos del centro (ver ds_pick_aim
+         * y DS_AIM_MIN_DIST_FRAC arriba). */
+        ds_pick_aim(rng, screenW, screenH, &ds->aimX, &ds->aimY);
         ds->phase = DS_CHARGE;
         ds->timer = DS_CHARGE_SECS;
     }
@@ -500,9 +557,31 @@ void deathstar_render(const DeathStar *ds, int screenW, int screenH)
      * el cuerpo), la causa no era la matriz en si (los valores eran finitos
      * y sanos) sino la llamada a DrawMesh cruda. DrawModelEx logra la misma
      * rotacion+traslacion y ya esta probado con el cuerpo. */
-    if (ds->dishPos.z >= ds->worldR * DS_DISH_CULL_Z) {
+    /* Desvanecido en vez de aparecer/desaparecer de golpe (ver DS_DISH_CULL_Z
+     * / DS_DISH_FADE_Z arriba): alpha 0 por debajo del umbral que evitaba la
+     * astilla de canto (nunca se ve esa geometria degenerada), 1 por encima
+     * de la zona de transicion. */
+    const float dishZRatio = ds->dishPos.z / ds->worldR;
+    const float dishFade = ds_clampf(
+        (dishZRatio - DS_DISH_CULL_Z) / (DS_DISH_FADE_Z - DS_DISH_CULL_Z), 0.0f, 1.0f);
+    if (dishFade > 0.0f) {
+        const Vector3 nrm = Vector3Normalize(ds->dishPos);
+        BeginBlendMode(BLEND_ALPHA);
+        /* Bisel del socket: el mismo modelo del ojo, mas ancho (radio x1.6
+         * en su plano, misma altura) y oscuro/traslucido, un poco mas
+         * hundido que el ojo (DS_DISH_BEZEL_EXTRA_SINK, evita z-fighting
+         * con el ojo real) — la esfera recorta su borde con el z-test real,
+         * asi que se ve como un cerco oscuro rodeando el ojo en vez del ojo
+         * flotando pegado encima de la superficie. */
+        const Vector3 bezelPos = Vector3Scale(nrm,
+            ds->worldR * (1.0f - DS_DISH_SINK_FRAC - DS_DISH_BEZEL_EXTRA_SINK));
+        DrawModelEx(ds->dish, bezelPos, ds->dishRotAxis, ds->dishRotAngle,
+                   (Vector3){ 1.6f, 1.0f, 1.6f },
+                   (Color){ 10, 12, 10, ds_alpha8(0.65f * dishFade) });
         DrawModelEx(ds->dish, ds->dishPos, ds->dishRotAxis, ds->dishRotAngle,
-                   (Vector3){ 1.0f, 1.0f, 1.0f }, WHITE);
+                   (Vector3){ 1.0f, 1.0f, 1.0f },
+                   (Color){ 255, 255, 255, ds_alpha8(dishFade) });
+        EndBlendMode();
     }
 
     EndMode3D();

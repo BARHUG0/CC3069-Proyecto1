@@ -5,14 +5,21 @@
  * Modelo real (GenMeshSphere + GenMeshCylinder, Camera3D), no primitivas 2D:
  * el cuerpo gira sobre su eje, y el "ojo" (plato del superlaser) es un
  * elemento aparte, chico, texturizado con un degradado radial para que se
- * lea cóncavo. El ojo está FIJO a un punto de la superficie del cuerpo
- * (arriba, con una leve inclinación) y gira CON la estación — no es
- * independiente del spin. Dispara UNA vez por vuelta: exactamente cuando el
- * ojo pasa por el frente (mirando a cámara, cruce de 360°→0° del spin), a un
- * punto al azar de toda la pantalla. No hay cronometro de disparo ni valor
- * SECS en la bandera: el ritmo lo fija la velocidad de rotación
- * (DS_SPIN_RATE_DEG). El rayo sale de donde esté el ojo hacia el punto de
- * impacto real (proyectado con GetWorldToScreen).
+ * lea cóncavo, hundido en el cuerpo (DS_DISH_SINK_FRAC) con un bisel oscuro
+ * detrás (mismo modelo, más ancho y más hundido) para que se lea encajado
+ * en un socket en vez de flotando pegado sobre la superficie. El ojo está
+ * FIJO a un punto de la superficie del cuerpo (arriba, con una leve
+ * inclinación) y gira CON la estación — no es independiente del spin, y su
+ * velocidad de giro no es constante: se frena cerca del frente
+ * (ds_spin_rate_deg) para que la carga/disparo tenga tiempo de leerse.
+ * Dispara UNA vez por vuelta: exactamente cuando el ojo pasa por el frente
+ * (mirando a cámara, cruce de 360°→0° del spin), a un punto al azar pero
+ * lejos del centro de pantalla (DS_AIM_MIN_DIST_FRAC — evita tiros cortos
+ * pegados a la estación). No hay cronometro de disparo ni valor SECS en la
+ * bandera: el ritmo lo fija la velocidad de rotación (DS_SPIN_RATE_DEG). El
+ * rayo sale de donde esté el ojo hacia el punto de impacto real (proyectado
+ * con GetWorldToScreen). De canto el ojo se desvanece en alpha en vez de
+ * aparecer/desaparecer de golpe (DS_DISH_CULL_Z/DS_DISH_FADE_Z).
  *
  * Mismo estilo del resto del ECS: nada de metodos ni struct por entidad. El
  * estado de la estacion es un solo struct (SoA para las explosiones, igual
