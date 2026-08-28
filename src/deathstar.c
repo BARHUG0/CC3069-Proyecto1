@@ -340,16 +340,17 @@ void deathstar_reset(DeathStar *ds)
 /* --- explosiones ----------------------------------------------------------
  * Tabla aplanada: la explosion i ocupa
  * [i*DS_EXP_PARTICLES, (i+1)*DS_EXP_PARTICLES) en partDir/partSpd. */
-static void ds_spawn_explosion(DeathStar *ds, Rng *rng, float cx, float cy)
+static void ds_spawn_explosion(DeathStar *ds, Rng *rng, float cx, float cy, int layer)
 {
     if (ds->expCount >= DS_MAX_EXPLOSIONS) {
         return; /* explosiones simultaneas de sobra para el ritmo de disparo */
     }
     const int i = ds->expCount++;
-    ds->expX[i]   = cx;
-    ds->expY[i]   = cy;
-    ds->expAge[i] = 0.0f;
-    ds->expDur[i] = DS_EXP_DUR;
+    ds->expX[i]     = cx;
+    ds->expY[i]     = cy;
+    ds->expAge[i]   = 0.0f;
+    ds->expDur[i]   = DS_EXP_DUR;
+    ds->expLayer[i] = layer;
 
     for (int k = 0; k < DS_EXP_PARTICLES; ++k) {
         const int idx = i * DS_EXP_PARTICLES + k;
@@ -370,10 +371,11 @@ static void ds_update_explosions(DeathStar *ds, float dt)
          * bloque de particulas) encima de la que acaba de morir. */
         const int last = ds->expCount - 1;
         if (i != last) {
-            ds->expX[i]   = ds->expX[last];
-            ds->expY[i]   = ds->expY[last];
-            ds->expAge[i] = ds->expAge[last];
-            ds->expDur[i] = ds->expDur[last];
+            ds->expX[i]     = ds->expX[last];
+            ds->expY[i]     = ds->expY[last];
+            ds->expAge[i]   = ds->expAge[last];
+            ds->expDur[i]   = ds->expDur[last];
+            ds->expLayer[i] = ds->expLayer[last];
             for (int k = 0; k < DS_EXP_PARTICLES; ++k) {
                 ds->partDir[i * DS_EXP_PARTICLES + k] = ds->partDir[last * DS_EXP_PARTICLES + k];
                 ds->partSpd[i * DS_EXP_PARTICLES + k] = ds->partSpd[last * DS_EXP_PARTICLES + k];
@@ -464,7 +466,7 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
                 }
             }
             if (victim >= 0) {
-                ds_spawn_explosion(ds, rng, ss->cx[victim], ss->cy[victim]);
+                ds_spawn_explosion(ds, rng, ss->cx[victim], ss->cy[victim], ss->layer[victim]);
                 trails_drop_system(tb, ss, victim);
                 solar_system_remove(w, ss, victim);
                 ds->kills++;
@@ -558,18 +560,28 @@ static void ds_render_beam(const DeathStar *ds)
  * la variacion por particula se deriva de partDir/partSpd ya existentes):
  *   1. destello inicial con puntas de difraccion (mismo truco visual que las
  *      estrellas brillantes de render_starfield), muere rapido;
- *   2. doble onda expansiva (choque + termica, velocidades distintas) —
- *      DrawRing (banda rellena) en vez de DrawCircleLines (contorno de
- *      1px): a esa escala un contorno se leia como un anillo fino, no como
- *      una onda pasando. El ancho de la banda se angosta con la edad (mas
- *      ancha al salir, mas fina al desvanecerse), como el frente real de
- *      una onda expansiva perdiendo fuerza;
- *   3. nucleo de fuego que decae;
+ *   2. una sola onda expansiva, sutil (banda fina, alpha bajo) — apoya a la
+ *      bola de fuego y las particulas, no compite con ellas como forma
+ *      propia. Antes eran DOS bandas concentricas mas un nucleo circular:
+ *      tres formas perfectas centradas en el mismo punto se leian como un
+ *      blanco/bullseye, no como una explosion — rechazado explicitamente;
+ *   3. bola de fuego IRREGULAR: en vez de un unico circulo perfecto, un
+ *      racimo de 6 circulos superpuestos, desplazados una fraccion chica y
+ *      FIJA del radio actual (no crece con el tiempo, encoge junto con el
+ *      nucleo) usando los mismos angulos que las primeras 6 particulas de
+ *      abajo — mismo estilo (nada de estado nuevo ni sorteos extra), pero
+ *      la silueta ya no es un disco perfecto;
  *   4. particulas con desaceleracion (no lineales) y color por velocidad:
  *      las rapidas salen blanco-amarillas, las lentas quedan como brasas
  *      naranja-rojizas vividas al final, como en una explosion real;
  *   5. humo gris residual en la segunda mitad (BLEND_ALPHA, no aditivo),
- *      para que el final no sea un corte seco. */
+ *      para que el final no sea un corte seco.
+ *
+ * Todo el tamano y el alpha de las 5 fases se escala por sc/al —
+ * solar_layer_scale/solar_layer_alpha de la CAPA del sistema que murio
+ * (ds->expLayer[i], spawn.h) — para que la explosion de un sistema de una
+ * capa de atras se vea tan chica y tenue como se veia el sistema vivo, en
+ * vez de saltar siempre a tamano/brillo de primera capa. */
 static void ds_render_explosions(const DeathStar *ds)
 {
     if (ds->expCount == 0) {
@@ -578,34 +590,45 @@ static void ds_render_explosions(const DeathStar *ds)
 
     BeginBlendMode(BLEND_ADDITIVE);
     for (int i = 0; i < ds->expCount; ++i) {
-        const float t = ds_clampf(ds->expAge[i] / ds->expDur[i], 0.0f, 1.0f);
+        const float t  = ds_clampf(ds->expAge[i] / ds->expDur[i], 0.0f, 1.0f);
+        const float sc = solar_layer_scale(ds->expLayer[i]);
+        const float al = solar_layer_alpha(ds->expLayer[i]);
         const Vector2 c = { ds->expX[i], ds->expY[i] };
 
         /* 1. destello + puntas de difraccion */
         if (t < 0.22f) {
             const float ft  = 1.0f - t / 0.22f; /* 1 -> 0 */
-            const float len = 90.0f * ft;
-            const Color spike = { 255, 180, 70, ds_alpha8(0.85f * ft) };
-            DrawCircleV(c, 6.0f + 26.0f * ft, (Color){ 255, 250, 220, ds_alpha8(0.9f * ft) });
+            const float len = 90.0f * ft * sc;
+            const Color spike = { 255, 180, 70, ds_alpha8(0.85f * ft * al) };
+            DrawCircleV(c, (6.0f + 26.0f * ft) * sc,
+                       (Color){ 255, 250, 220, ds_alpha8(0.9f * ft * al) });
             DrawLineEx((Vector2){ c.x - len, c.y }, (Vector2){ c.x + len, c.y }, 2.0f, spike);
             DrawLineEx((Vector2){ c.x, c.y - len }, (Vector2){ c.x, c.y + len }, 2.0f, spike);
         }
 
-        /* 2. doble onda expansiva: banda rellena, no contorno. El ancho se
-         * angosta con t (mas ancha recien nacida, un filo fino al final). */
-        const float outer1 = t * DS_SHOCK_MAXR;
-        const float width1 = 16.0f * (1.0f - t * 0.5f);
-        DrawRing(c, ds_clampf(outer1 - width1, 0.0f, outer1), outer1, 0.0f, 360.0f, 48,
-                (Color){ 255, 120, 20, ds_alpha8((1.0f - t) * 0.75f) });
+        /* 2. onda expansiva unica y sutil: banda fina, alpha bajo. */
+        const float outer = t * DS_SHOCK_MAXR * sc;
+        const float width = 8.0f * sc * (1.0f - t * 0.5f);
+        DrawRing(c, ds_clampf(outer - width, 0.0f, outer), outer, 0.0f, 360.0f, 48,
+                (Color){ 255, 130, 40, ds_alpha8((1.0f - t) * 0.35f * al) });
 
-        const float outer2 = t * DS_SHOCK_MAXR * 0.6f;
-        const float width2 = 24.0f * (1.0f - t * 0.5f);
-        DrawRing(c, ds_clampf(outer2 - width2, 0.0f, outer2), outer2, 0.0f, 360.0f, 48,
-                (Color){ 255, 170, 60, ds_alpha8((1.0f - t) * 0.5f) });
-
-        /* 3. nucleo de fuego */
-        DrawCircleV(c, (1.0f - t) * (1.0f - t) * 30.0f + 3.0f,
-                   (Color){ 255, 140, 40, ds_alpha8((1.0f - t) * 0.8f) });
+        /* 3. bola de fuego irregular: racimo de circulos superpuestos, no
+         * un disco perfecto. coreR es el mismo radio/decaimiento de antes;
+         * cada puff se desplaza una fraccion FIJA de coreR (encoge junto
+         * con el nucleo, no se dispersa como las particulas de abajo) y
+         * varia de tamano segun k para que el contorno sea irregular. */
+        const float coreR = ((1.0f - t) * (1.0f - t) * 30.0f + 3.0f) * sc;
+        const Color fireColor = { 255, 140, 40, ds_alpha8((1.0f - t) * 0.8f * al) };
+        for (int k = 0; k < 6; ++k) {
+            const int   idx    = i * DS_EXP_PARTICLES + k;
+            const float off    = coreR * 0.35f;
+            const float puffR  = coreR * (0.55f + 0.18f * (float)(k % 3));
+            const Vector2 p = {
+                c.x + cosf(ds->partDir[idx]) * off,
+                c.y + sinf(ds->partDir[idx]) * off
+            };
+            DrawCircleV(p, puffR, fireColor);
+        }
 
         /* 4. particulas: desaceleracion cuadratica + color por velocidad.
          * DS_EXP_PART_REACH, no ds->expDur[i]: el alcance no debe crecer
@@ -616,17 +639,17 @@ static void ds_render_explosions(const DeathStar *ds)
         for (int k = 0; k < DS_EXP_PARTICLES; ++k) {
             const int   idx  = i * DS_EXP_PARTICLES + k;
             const float spd  = ds->partSpd[idx];
-            const float dist = spd * DS_EXP_PART_REACH * ease;
+            const float dist = spd * DS_EXP_PART_REACH * ease * sc;
             const float hot  = ds_clampf((spd - 60.0f) / 160.0f, 0.0f, 1.0f);
             const Vector2 p = {
                 c.x + cosf(ds->partDir[idx]) * dist,
                 c.y + sinf(ds->partDir[idx]) * dist
             };
-            DrawCircleV(p, (1.0f - t) * 2.4f + 0.5f,
+            DrawCircleV(p, ((1.0f - t) * 2.4f + 0.5f) * sc,
                        (Color){ 255,
                                 (unsigned char)(90.0f + 165.0f * hot),
                                 (unsigned char)(15.0f + 175.0f * hot),
-                                ds_alpha8((1.0f - t) * 0.9f) });
+                                ds_alpha8((1.0f - t) * 0.9f * al) });
         }
     }
     EndBlendMode();
@@ -638,17 +661,19 @@ static void ds_render_explosions(const DeathStar *ds)
         if (t <= 0.45f) {
             continue;
         }
+        const float sc = solar_layer_scale(ds->expLayer[i]);
+        const float al = solar_layer_alpha(ds->expLayer[i]);
         const float st = (t - 0.45f) / 0.55f; /* 0 -> 1 */
         const Vector2 c = { ds->expX[i], ds->expY[i] };
         for (int k = 0; k < 3; ++k) {
             const int   idx = i * DS_EXP_PARTICLES + k;
-            const float off = 16.0f + 9.0f * (float)k;
+            const float off = (16.0f + 9.0f * (float)k) * sc;
             const Vector2 p = {
                 c.x + cosf(ds->partDir[idx]) * off,
                 c.y + sinf(ds->partDir[idx]) * off
             };
-            DrawCircleV(p, 14.0f + 26.0f * st,
-                       (Color){ 90, 88, 86, ds_alpha8((1.0f - st) * 0.30f) });
+            DrawCircleV(p, (14.0f + 26.0f * st) * sc,
+                       (Color){ 90, 88, 86, ds_alpha8((1.0f - st) * 0.30f * al) });
         }
     }
     EndBlendMode();

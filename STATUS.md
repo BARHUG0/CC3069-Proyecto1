@@ -1,18 +1,24 @@
 # Estado del proyecto (para retomar en otra sesión)
 
-Última revisión: 2026-08-27. Build limpio (`make`, cero warnings con
+Última revisión: 2026-08-28. Build limpio (`make`, cero warnings con
 `-Wall -Wextra -Wpedantic`). La posición de cada sistema ya no depende de su
 ancla (ver "El diseño de anclas" abajo) y hay una modalidad nueva,
-`--deadstar` (ver esa sección más abajo, **ya en su v7**: el ojo gira pegado
-al cuerpo, hundido con un bisel de socket, se frena y dispara DOS veces por
-vuelta — apenas aparece, izquierda, y al cruzar el frente exacto, derecha —
-a un punto lejos del centro, y la estación es más chica que antes; no lleva
-`SECS`). Además, en una vuelta aparte: paletas más vívidas, planetas
-teñidos por la calidez de su sol, y sistemas solares con capas de
-profundidad fijas (tamaño/brillo por capa, no solo orden de dibujo) — ver
-"Colores vívidos + ... + capas de profundidad" más abajo. **Nota**: los
-nuevos sorteos de RNG corren la secuencia — cualquier `--seed` de antes de
-esta sesión produce una escena distinta ahora, no es una regresión.
+`--deadstar` (ver esa sección más abajo, **ya en su v10**: el ojo gira
+pegado al cuerpo, hundido con un bisel de socket, se frena y dispara DOS
+veces por vuelta — apenas aparece, izquierda, y al cruzar el frente exacto,
+derecha — a un punto lejos del centro, la estación es más chica que antes,
+el casco es más oscuro con más luces de varios tonos, y las explosiones son
+más vívidas/largas, escalan/atenúan por la capa de profundidad del sistema
+destruido, y ya no se ven como tres círculos concéntricos (una sola onda
+sutil + una bola de fuego irregular, no un nucleo circular perfecto); no
+lleva `SECS`). Además, en
+una vuelta aparte: paletas más vívidas, planetas teñidos por la calidez de
+su sol, y sistemas solares con capas de profundidad fijas (tamaño/brillo
+por capa, ya bien marcadas tras un retune — el núcleo del sol también se
+atenúa ahora) — ver "Colores vívidos + ... + capas de profundidad" más
+abajo. **Nota**: los nuevos sorteos de RNG corren la secuencia — cualquier
+`--seed` de antes de esta sesión produce una escena distinta ahora, no es
+una regresión.
 
 Historial de esta sesión: se retomó con el v4 implementado pero sin
 committear, y con dos `fprintf(stderr, "DBG ...")` de depuración sueltos en
@@ -285,6 +291,104 @@ render de la estación:**
      entre cruce y la proxima aparicion). La rotacion nunca se detiene
      (`DS_SPIN_RATE_MIN=6` sigue siendo un piso, no cero) — eso ya estaba
      bien desde v5/v6, el usuario solo pidio confirmarlo, no cambiarlo.
+- **v8 (textura del casco, misma vuelta que el retune de capas)**: pedido
+  de "mas vivido, mas oscuro pero no negro, mas luces" sobre
+  `ds_build_skin`. Solo colores/cantidades, geometria intacta: color base
+  del casco `{150,150,156}→{78,80,88}` (mas oscuro, sigue siendo gris
+  legible); lineas de panel `{92,92,100}→{112,115,125}` y trinchera
+  ecuatorial `{68,68,76}/{36,36,42}→{46,45,52}/{22,21,26}` retunadas para
+  mantener el mismo ANCHO de contraste contra la base nueva (si no, el
+  detalle de paneles se lava contra un casco mas oscuro). Luces: de 140 a
+  260, y de un tono fijo a 3 tonos calidos elegidos al azar por luz
+  (blanco-amarillo caliente / ambar original / naranja profundo) — mas
+  densas y mas variadas a la vez. Verificado con captura + zoom a resolucion
+  nativa (sin escalar) confirmando el color base real por pixel con
+  ImageMagick (`{78,80,88}` exacto, no solo "a ojo").
+- **v9 (explosiones, misma vuelta)**: pedido de colores mas vividos
+  (naranjas/brillantes), una "onda" real al explotar, y duracion mas larga
+  para que se sienta suave. Los tres tocan solo `ds_render_explosions` y
+  las constantes `DS_EXP_DUR`/`DS_SHOCK_MAXR`/`DS_EXP_PART_REACH` (nueva) al
+  principio del archivo — el sistema ya era analitico (posicion =
+  centro + direccion*velocidad*f(edad)), no hizo falta estado nuevo.
+  1. **Onda real**: las dos "ondas expansivas" eran `DrawCircleLines`
+     (contorno de 1px) — a la escala de una explosion se leian como
+     anillos finitos, no como una onda pasando. Se cambiaron a `DrawRing`
+     (banda rellena, `innerR=outerR-ancho`), con el ancho angostandose con
+     la edad (nace ancha, termina en un filo fino) para que se lea como un
+     frente de choque perdiendo fuerza, no un aro estatico.
+  2. **Colores mas vividos**: destello, ondas, nucleo de fuego y el extremo
+     frio del gradiente de particulas (antes un naranja-marron apagado
+     `(255,120,60)`) se resaturaron hacia naranjas mas puros — sigue la
+     misma logica de antes (mas rapido=mas blanco-caliente, mas
+     lento=brasas), solo mas saturada en los extremos.
+  3. **Duracion mas larga**: `DS_EXP_DUR` 1.6s→2.6s. Como cada fase de
+     `ds_render_explosions` esta en funcion de `t=edad/duracion`, alargar
+     esta UNA constante estira todas las fases (destello, ondas, nucleo,
+     particulas, humo) proporcionalmente, gratis.
+  4. **Bug real encontrado al alargar la duracion (no opcional, hubiera
+     roto el efecto)**: el alcance de las particulas era
+     `dist = spd * ds->expDur[i] * 0.55 * ease` — multiplicaba por la
+     duracion de LA PROPIA explosion. Con `DS_EXP_DUR` mas largo eso manda
+     las particulas ~1.6x mas lejos sin querer, mientras la onda expansiva
+     de encima sigue con el mismo radio maximo fijo (`DS_SHOCK_MAXR`,
+     independiente de la duracion) — el resultado visual es que las
+     particulas se adelantan a la onda y quedan sueltas, sin relacion
+     visual entre ambas. Se desacoplo con `DS_EXP_PART_REACH=0.88`
+     (reproduce el alcance real de antes: `1.6*0.55=0.88`) en vez de
+     `ds->expDur[i]`, asi el alcance no cambia con la duracion — solo el
+     RITMO (via `ease`, que si esta normalizado por duracion) se estira.
+     `DS_SHOCK_MAXR` tambien se subio un poco (140→170) para que la onda,
+     ahora mas lenta, tenga mas espacio recorrido antes de desvanecerse.
+  - **Nota de verificacion util**: un disparo solo explota si el aim
+    aleatorio realmente cae sobre un sistema (puede fallar, a proposito) —
+    para conseguir una captura real en el momento exacto de una explosion
+    sin adivinar `--frames` a ciegas, se uso el arnes headless
+    (`deathstar_update` en bucle, dt fijo) para confirmar CUANDO dispara
+    cada seed, pero el punto de impacto (aleatorio, con RNG compartido con
+    el spawn de estrellas de fondo que consume numeros cada frame) diverge
+    entre el arnes y el juego real -- asi que el arnes solo sirve para
+    ubicar los DISPAROS, no los ACIERTOS. Para encontrar un acierto real
+    hubo que barrer `--frames` en el juego real mismo, seed por seed,
+    revisando "Sistemas destruidos" en el HUD hasta encontrar uno que
+    conectara (semilla 42 fallo ~13 disparos seguidos; semilla 2 acerto
+    rapido) — mas simple que perseguir el mismo acierto exacto entre arnes
+    y juego real.
+- **v10 (explosiones, capa de profundidad + rediseño, misma vuelta)**: dos
+  pedidos sobre lo de v9: la explosion no respetaba la capa del sistema
+  muerto (siempre se veia "de primera capa" aunque el sistema fuera de
+  atras), y un rechazo explicito al look de v9 — "no me gustan nada los
+  tres circulos que aparecen" (nucleo de fuego + las dos bandas `DrawRing`
+  concentradas en el mismo punto = un bullseye, no una explosion).
+  1. **Capa de profundidad**: `DeathStar` gano `expLayer[DS_MAX_EXPLOSIONS]`
+     (la CAPA cruda del sistema, no una escala precalculada — misma fuente
+     de verdad que `solar_layer_scale`/`solar_layer_alpha`, spawn.h, usada
+     en todo el resto del render por capas). `ds_spawn_explosion` recibe
+     `ss->layer[victim]` en el sitio del kill, ANTES de
+     `solar_system_remove` (que ya invalida ese indice). `ds_render_explosions`
+     multiplica TODO tamaño por `sc=solar_layer_scale(...)` y TODO alpha
+     por `al=solar_layer_alpha(...)` — destello, onda, bola de fuego,
+     particulas (tamaño y alcance) y humo, las 5 fases. El swap-remove de
+     `ds_update_explosions` copia `expLayer[i]=expLayer[last]` junto con
+     las demas columnas paralelas (mismo patron ya usado ahi).
+  2. **Rediseño anti-bullseye**: se bajo de DOS bandas `DrawRing` a UNA,
+     mas fina y de alpha mas bajo (apoya, no compite). El nucleo circular
+     perfecto se reemplazo por un racimo de 6 `DrawCircleV` superpuestos,
+     desplazados una fraccion FIJA (no creciente) del radio actual del
+     nucleo usando los mismos angulos que las primeras 6 particulas de
+     `partDir[]` (sin sorteos nuevos) — la silueta queda irregular/lumpy en
+     vez de un disco perfecto. Destello, particulas y humo quedaron igual
+     en forma (solo ganaron los multiplicadores de capa del punto 1).
+  - **Nota de verificacion**: para confirmar la capa exacta de un kill sin
+    adivinar por tamaño a ojo, se agrego un `fprintf(stderr, "KILLDBG
+    layer=%d", ...)` temporal en el sitio del kill, se barrieron varios
+    seeds hasta encontrar uno con un kill en capa 0 (semilla 5, segundo
+    kill) para comparar lado a lado contra un kill en capa 2/3 — SE QUITO
+    antes de terminar (no dejar instrumentacion de depuracion en el
+    codigo, ver el incidente ya documentado de `g_dbgFrame` mas arriba en
+    este archivo). Confirmado visualmente: el kill de capa 0 se ve
+    notoriamente mas chico y tenue (banda de onda casi imperceptible,
+    racimo de fuego pequeño) comparado con kills de capas mas altas en la
+    misma sesion.
 
 **Bug real encontrado y arreglado en esta vuelta (dejar documentado, es
 sutil): NO usar `DrawMesh(mesh, material, MatrixMultiply(MatrixRotate(...),
@@ -376,6 +480,28 @@ reescala solo si N cambia.
 Sesión aparte (misma fecha), tres pedidos sobre `src/spawn.c`/`src/spawn.h`/
 `src/systems.c`/`src/systems.h`, ninguno toca `--deadstar`.
 
+**Retune de capas (vuelta siguiente, mismo día)**: el efecto de capas de
+arriba salió a la pantalla demasiado sutil — el usuario pidió que se
+notara más, en concreto que los sistemas de atrás se vieran más tenues.
+Dos cambios sobre lo ya descrito: (1) `solar_layer_scale`/
+`solar_layer_alpha` (`spawn.h`) se ensancharon de `0.60→1.00`/`0.50→1.00` a
+`0.45→1.00`/`0.20→1.00` — el alfa se estiró más porque "mas dimmer" fue el
+pedido explícito; (2) **el núcleo opaco del sol ahora también se atenúa
+por capa** en `render_bodies` (antes quedaba fijo en alpha 255 a
+propósito, "para no tocar un comportamiento no pedido" — ver el
+comentario original más abajo, ya actualizado). Esa decisión anterior era
+correcta en su momento pero se volvió el obstáculo real: el sol es el
+elemento más grande/brillante de cada sistema, así que dejarlo sin atenuar
+tapaba casi todo el efecto aunque el resto (glow, planetas, estelas,
+anillos) sí se atenuara. Verificado con capturas a N=12: ahora hay
+sistemas casi imperceptibles junto a otros a brillo/tamaño completo, en la
+misma pantalla, sin que se crucen — justo lo pedido. **Nota de captura**:
+en este entorno headless algunas corridas devuelven el PNG a la resolución
+lógica (p.ej. 1280x720) en vez del framebuffer real con DPI (p.ej.
+2560x1440), y de forma intermitente esa combinación deja media escena
+fuera del área capturada — no es un bug del código, es de la captura;
+repetir la corrida (mismo seed/frames) alcanza para confirmarlo.
+
 **Paletas retunadas** (`STAR_PALETTE`/`SUN_PALETTE`/`PLANET_PALETTE`,
 `spawn.c:6-60`): más saturadas que antes. La regla vieja (fondo frío,
 soles cálidos, bandas que NO se solapan — ver el comentario de arriba, no
@@ -442,9 +568,11 @@ sistemas se cruzan. Puntos importantes si se retoca:
   cuál está adelante". Se partió en `render_sun_glow` (aditivo, sigue
   global/sin ordenar — conmuta, no importa el orden), `render_bodies`
   (recorre las `SYS_LAYER_COUNT` capas de atrás hacia adelante, y dentro de
-  cada capa dibuja sol+planetas de cada sistema de forma atómica — el
-  núcleo del sol se queda a alpha 255 fijo, sin atenuar, a propósito, para
-  no tocar un comportamiento que no se pidió cambiar) y `render_specular`
+  cada capa dibuja sol+planetas de cada sistema de forma atómica, ambos
+  atenuados por capa — el núcleo del sol originalmente se dejó a alpha 255
+  fijo a propósito, para no tocar un comportamiento no pedido, pero esa
+  decisión se revirtió en la vuelta siguiente el mismo día: ver la nota de
+  "retune de capas" al principio de esta sección) y `render_specular`
   (aditivo, global). Por baldes de capa, no un sort genérico: con
   `SYS_LAYER_COUNT` chico son 4 barridos filtrados, y dos sistemas de la
   misma capa comparten escala/alpha — no hay un orden real entre ellos que
