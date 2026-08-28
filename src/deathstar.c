@@ -7,8 +7,26 @@
 #define DS_TWO_PI      6.2831853f
 #define DS_CHARGE_SECS 0.9f
 #define DS_FIRE_SECS   0.35f
-#define DS_EXP_DUR     1.6f
-#define DS_SHOCK_MAXR  140.0f
+/* Duracion mas larga (era 1.6s) para que la explosion se sienta mas suave,
+ * no de golpe — pedido explicito. Cada fase de ds_render_explosions esta
+ * en funcion de t=edad/duracion, asi que alargar esta constante estira
+ * todas las fases (destello, onda, nucleo, particulas, humo) sin retocar
+ * cada una a mano. La UNICA fase que NO debia estirarse sola era el
+ * alcance de las particulas (ver DS_EXP_PART_REACH mas abajo). */
+#define DS_EXP_DUR     2.6f
+/* Radio maximo de la onda expansiva, subido junto con la duracion para que
+ * la onda tenga espacio de sentirse "expandiendose" en vez de llegar a su
+ * tamano final muy rapido contra la nueva linea de tiempo, mas larga. */
+#define DS_SHOCK_MAXR  170.0f
+/* Alcance de las particulas: ANTES `dist = spd * ds->expDur[i] * 0.55 *
+ * ease` multiplicaba por la duracion de LA PROPIA explosion — con
+ * DS_EXP_DUR mas largo eso mandaria las particulas ~1.6x mas lejos sin
+ * querer, separandolas visualmente de la onda expansiva (que no escala con
+ * la duracion, siempre llega a DS_SHOCK_MAXR). Esta constante reproduce la
+ * distancia real de antes (1.6*0.55=0.88) pero SIN depender de expDur, asi
+ * el alcance queda igual sin importar cuanto dure la explosion — solo el
+ * RITMO (via `ease`, que si esta normalizado por duracion) se estira. */
+#define DS_EXP_PART_REACH 0.88f
 
 /* El ojo esta fijo a un punto del cuerpo (arriba, con una leve inclinacion,
  * como en las referencias de la nave) y gira CON el spin — ver deathstar.h.
@@ -540,11 +558,16 @@ static void ds_render_beam(const DeathStar *ds)
  * la variacion por particula se deriva de partDir/partSpd ya existentes):
  *   1. destello inicial con puntas de difraccion (mismo truco visual que las
  *      estrellas brillantes de render_starfield), muere rapido;
- *   2. doble onda expansiva (choque + termica, velocidades distintas);
+ *   2. doble onda expansiva (choque + termica, velocidades distintas) —
+ *      DrawRing (banda rellena) en vez de DrawCircleLines (contorno de
+ *      1px): a esa escala un contorno se leia como un anillo fino, no como
+ *      una onda pasando. El ancho de la banda se angosta con la edad (mas
+ *      ancha al salir, mas fina al desvanecerse), como el frente real de
+ *      una onda expansiva perdiendo fuerza;
  *   3. nucleo de fuego que decae;
  *   4. particulas con desaceleracion (no lineales) y color por velocidad:
  *      las rapidas salen blanco-amarillas, las lentas quedan como brasas
- *      naranjas/rojizas al final, como en una explosion real;
+ *      naranja-rojizas vividas al final, como en una explosion real;
  *   5. humo gris residual en la segunda mitad (BLEND_ALPHA, no aditivo),
  *      para que el final no sea un corte seco. */
 static void ds_render_explosions(const DeathStar *ds)
@@ -562,28 +585,38 @@ static void ds_render_explosions(const DeathStar *ds)
         if (t < 0.22f) {
             const float ft  = 1.0f - t / 0.22f; /* 1 -> 0 */
             const float len = 90.0f * ft;
-            const Color spike = { 255, 240, 200, ds_alpha8(0.8f * ft) };
-            DrawCircleV(c, 6.0f + 26.0f * ft, (Color){ 255, 255, 235, ds_alpha8(0.9f * ft) });
+            const Color spike = { 255, 180, 70, ds_alpha8(0.85f * ft) };
+            DrawCircleV(c, 6.0f + 26.0f * ft, (Color){ 255, 250, 220, ds_alpha8(0.9f * ft) });
             DrawLineEx((Vector2){ c.x - len, c.y }, (Vector2){ c.x + len, c.y }, 2.0f, spike);
             DrawLineEx((Vector2){ c.x, c.y - len }, (Vector2){ c.x, c.y + len }, 2.0f, spike);
         }
 
-        /* 2. doble onda expansiva */
-        DrawCircleLines((int)c.x, (int)c.y, t * DS_SHOCK_MAXR,
-                        (Color){ 255, 200, 120, ds_alpha8((1.0f - t) * 0.7f) });
-        DrawCircleLines((int)c.x, (int)c.y, t * DS_SHOCK_MAXR * 0.6f,
-                        (Color){ 255, 150, 80, ds_alpha8((1.0f - t) * 0.45f) });
+        /* 2. doble onda expansiva: banda rellena, no contorno. El ancho se
+         * angosta con t (mas ancha recien nacida, un filo fino al final). */
+        const float outer1 = t * DS_SHOCK_MAXR;
+        const float width1 = 16.0f * (1.0f - t * 0.5f);
+        DrawRing(c, ds_clampf(outer1 - width1, 0.0f, outer1), outer1, 0.0f, 360.0f, 48,
+                (Color){ 255, 120, 20, ds_alpha8((1.0f - t) * 0.75f) });
+
+        const float outer2 = t * DS_SHOCK_MAXR * 0.6f;
+        const float width2 = 24.0f * (1.0f - t * 0.5f);
+        DrawRing(c, ds_clampf(outer2 - width2, 0.0f, outer2), outer2, 0.0f, 360.0f, 48,
+                (Color){ 255, 170, 60, ds_alpha8((1.0f - t) * 0.5f) });
 
         /* 3. nucleo de fuego */
         DrawCircleV(c, (1.0f - t) * (1.0f - t) * 30.0f + 3.0f,
-                   (Color){ 255, 190, 110, ds_alpha8((1.0f - t) * 0.8f) });
+                   (Color){ 255, 140, 40, ds_alpha8((1.0f - t) * 0.8f) });
 
-        /* 4. particulas: desaceleracion cuadratica + color por velocidad */
+        /* 4. particulas: desaceleracion cuadratica + color por velocidad.
+         * DS_EXP_PART_REACH, no ds->expDur[i]: el alcance no debe crecer
+         * solo porque la explosion dura mas (ver el comentario de la
+         * constante, arriba) — si no, las particulas se adelantarian a la
+         * onda expansiva de encima, que si tiene un radio maximo fijo. */
         const float ease = 1.0f - (1.0f - t) * (1.0f - t); /* 0->1 frenando */
         for (int k = 0; k < DS_EXP_PARTICLES; ++k) {
             const int   idx  = i * DS_EXP_PARTICLES + k;
             const float spd  = ds->partSpd[idx];
-            const float dist = spd * ds->expDur[i] * 0.55f * ease;
+            const float dist = spd * DS_EXP_PART_REACH * ease;
             const float hot  = ds_clampf((spd - 60.0f) / 160.0f, 0.0f, 1.0f);
             const Vector2 p = {
                 c.x + cosf(ds->partDir[idx]) * dist,
@@ -591,8 +624,8 @@ static void ds_render_explosions(const DeathStar *ds)
             };
             DrawCircleV(p, (1.0f - t) * 2.4f + 0.5f,
                        (Color){ 255,
-                                (unsigned char)(120.0f + 135.0f * hot),
-                                (unsigned char)(60.0f + 150.0f * hot),
+                                (unsigned char)(90.0f + 165.0f * hot),
+                                (unsigned char)(15.0f + 175.0f * hot),
                                 ds_alpha8((1.0f - t) * 0.9f) });
         }
     }
