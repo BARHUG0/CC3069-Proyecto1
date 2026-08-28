@@ -3,10 +3,16 @@
 Última revisión: 2026-08-27. Build limpio (`make`, cero warnings con
 `-Wall -Wextra -Wpedantic`). La posición de cada sistema ya no depende de su
 ancla (ver "El diseño de anclas" abajo) y hay una modalidad nueva,
-`--deadstar` (ver esa sección más abajo, **ya en su v6**: el ojo gira pegado
-al cuerpo, hundido con un bisel de socket, se frena y dispara apenas
-aparece — no al llegar al frente exacto — a un punto lejos del centro, y la
-estación es más chica que antes; no lleva `SECS`).
+`--deadstar` (ver esa sección más abajo, **ya en su v7**: el ojo gira pegado
+al cuerpo, hundido con un bisel de socket, se frena y dispara DOS veces por
+vuelta — apenas aparece, izquierda, y al cruzar el frente exacto, derecha —
+a un punto lejos del centro, y la estación es más chica que antes; no lleva
+`SECS`). Además, en una vuelta aparte: paletas más vívidas, planetas
+teñidos por la calidez de su sol, y sistemas solares con capas de
+profundidad fijas (tamaño/brillo por capa, no solo orden de dibujo) — ver
+"Colores vívidos + ... + capas de profundidad" más abajo. **Nota**: los
+nuevos sorteos de RNG corren la secuencia — cualquier `--seed` de antes de
+esta sesión produce una escena distinta ahora, no es una regresión.
 
 Historial de esta sesión: se retomó con el v4 implementado pero sin
 committear, y con dos `fprintf(stderr, "DBG ...")` de depuración sueltos en
@@ -239,6 +245,46 @@ render de la estación:**
     `--frames N` contra un FPS real que en este entorno vario 60-200+ entre
     corridas (el ciclo de disparo completo son ~75 frames de 60fps sobre un
     total de ~740 frames por vuelta — facil de saltarse de largo adivinando).
+- **v7 (3D, la actual — dos disparos por vuelta)**: el usuario pidio
+  disparar tambien al cruzar el frente exacto (ademas del disparo de
+  aparicion de v6), y que cada disparo quede restringido al lado de
+  pantalla donde esta el ojo en ese instante.
+  1. **Segundo trigger**: se reintrodujo el booleano de cruce de spin
+     360°→0° que v6 habia quitado (`atMiddle`, capturado ANTES de restar
+     360, mismo patron que el `atFront` de v4/v5). El trigger de
+     `deathstar_update` paso de `if (justAppeared ...)` a
+     `if ((justAppeared || atMiddle) ...)`. Sin riesgo de que los dos
+     disparos se pisen: el transito de aparicion (`spin≈294.6°`) a frente
+     (`spin≈0°`) integrando `ds_spin_rate_deg` da **~3.8s**, contra
+     `DS_CHARGE_SECS+DS_FIRE_SECS=1.25s` — de sobra. El guard existente
+     `ds->phase==DS_IDLE` alcanza solo, no hizo falta agregar nada mas: en
+     el peor caso un frame raro se saltaria un disparo para esa vuelta, no
+     corrompe estado.
+  2. **Lado de pantalla por disparo**: `ds_pick_aim` gano un parametro
+     `int rightHalf` que restringe el rango de muestreo de X a
+     `[0,cx]`/`[cx,screenW]` (la distancia minima al centro sigue siendo
+     resampleo best-effort, el lado es una restriccion dura del rango). Se
+     pasa `atMiddle` directo como `rightHalf` — **no se proyecta
+     `ds->dishPos` con `GetWorldToScreen`** para decidir el lado, a
+     proposito: el lado sale de CUAL disparo es, por construccion (el de
+     aparicion siempre cae en `spin∈(180°,360°)`, `sin(spin)<0` ->
+     pantalla-izquierda ya que la camara mira desde `+Z` con `up=+Y`, o sea
+     mundo `+X` es pantalla-derecha; el de cruce de frente siempre arranca
+     en `spin` pequeno y positivo justo despues de envolver, `sin(spin)≥0`
+     -> pantalla-derecha). Proyectar seria ademas incorrecto en la practica:
+     `GetWorldToScreen` llama a `GetScreenWidth()` internamente, que
+     devuelve 0 sin `InitWindow` — hubiera roto el arnes headless de abajo
+     en silencio (compila y linkea igual, solo los numeros salen mal).
+  3. **Verificacion**: se extendio el arnes headless (mismo patron de v6,
+     `ecs.c spawn.c systems.c deathstar.c`, `dt` fijo) para contar
+     transiciones `IDLE→CHARGE` por vuelta e imprimir `ds->spin`/`ds->aimX`
+     en cada una. Confirmado en una corrida de 8 disparos: alternan
+     limpiamente `spin≈295°→aimX en mitad izquierda` /
+     `spin≈0°→aimX en mitad derecha`, sin excepciones, con el espaciado
+     esperado (~515 frames de 60fps entre aparicion y cruce, ~515 frames
+     entre cruce y la proxima aparicion). La rotacion nunca se detiene
+     (`DS_SPIN_RATE_MIN=6` sigue siendo un piso, no cero) — eso ya estaba
+     bien desde v5/v6, el usuario solo pidio confirmarlo, no cambiarlo.
 
 **Bug real encontrado y arreglado en esta vuelta (dejar documentado, es
 sutil): NO usar `DrawMesh(mesh, material, MatrixMultiply(MatrixRotate(...),
@@ -324,6 +370,112 @@ Geometría de la estación, tal como quedó (3D, `src/deathstar.c`):
 
 `ds->blastR` (radio de impacto) se ata a `ss->cellR` (no un píxel fijo): se
 reescala solo si N cambia.
+
+## Colores vívidos + planetas atados a la calidez del sol + capas de profundidad
+
+Sesión aparte (misma fecha), tres pedidos sobre `src/spawn.c`/`src/spawn.h`/
+`src/systems.c`/`src/systems.h`, ninguno toca `--deadstar`.
+
+**Paletas retunadas** (`STAR_PALETTE`/`SUN_PALETTE`/`PLANET_PALETTE`,
+`spawn.c:6-60`): más saturadas que antes. La regla vieja (fondo frío,
+soles cálidos, bandas que NO se solapan — ver el comentario de arriba, no
+re-litigar) queda intacta a propósito: subir saturación separa aún más las
+dos bandas, no las acerca. `STAR_PALETTE[0]`/`[1]` siguen duplicados
+(peso 2/5 hacia blanco puro, no es un error de copiar-pegar).
+
+**Planetas atados a la calidez del sol**: `SUN_PALETTE` está ordenada
+frío→cálido a propósito — el ÍNDICE es el ordinal de calidez que usa
+`spawn_system_into_slot` (`warm = sunPal >= SUN_PALETTE_N/2`), no un umbral
+de RGB calculado a mano aparte (ese segundo enfoque se descartó explícitamente:
+un umbral tuneado contra la tabla de hoy se desincroniza en silencio la
+próxima vez que se retoquen los colores — mismo motivo por el que
+`ds->frontEaseDeg` en `deathstar.c` dejó de ser una constante suelta). El
+índice del sol se sortea ANTES de llamar a `spawn_sun` (mismo orden de RNG
+que antes) para poder leerlo en el llamador. `PLANET_PALETTE` es UNA tabla
+con dos rangos superpuestos (`PLANET_COOL_LO/HI`, `PLANET_WARM_LO/HI`), no
+dos tablas — `templado`/`rocoso` caen en ambos rangos para que ningún
+sistema se vea monocromo. Motivo físico, no solo estético: la luz reflejada
+por un planeta está teñida por la de su sol.
+
+**Capas de profundidad** (`SYS_LAYER_COUNT=4`, `spawn.h`): cada sistema nace
+en una capa fija (0=atrás/chico/tenue, 3=adelante/tamaño y brillo
+completos), para que la distancia se vea SIEMPRE, no solo cuando dos
+sistemas se cruzan. Puntos importantes si se retoca:
+
+- **Reparto barajado, no `rng_below` independiente por sistema**: un volado
+  independiente por sistema es exactamente el error ya litigado y
+  rechazado para las anclas (ver "El diseño de anclas" arriba) — con N
+  chico puede amontonar casi todo en una capa. `spawn_solar_systems` arma
+  `lay[s]=s%SYS_LAYER_COUNT` y lo baraja con el mismo Fisher-Yates que ya
+  usa para `assign[]`. `spawn_one_system` imita la lógica de "balde menos
+  poblado" que ya usaba para elegir ancla.
+- **Spawn escala geometría, render escala brillo — NO al revés**. Se
+  descartó a propósito repurposear `w->alpha[e]`/`twBase`/`twAmp` del sol
+  para el atenuado por capa: `render_sun_glow` lee `w->alpha[e]` como
+  **multiplicador de RADIO** del halo (`r*1.5f*pulse`), no como alpha —
+  achicar `twBase` ahí encoge el halo *dentro* del núcleo opaco en vez de
+  atenuarlo, y se ve como el halo roto, no como distancia. En cambio: el
+  tamaño (radio del sol, radios de órbita, velocidad lineal de deriva) se
+  hornea UNA vez al nacer en `spawn_system_into_slot` vía `solar_layer_scale`
+  (`sc`); el brillo (glow del sol, alpha de planeta/estela/anillo) se lee
+  en el render vía `solar_layer_alpha`, directo de `ss->layer[s]` — las
+  dos funciones son `static inline` en `spawn.h`, una sola fuente de
+  verdad para ambos lados.
+- **Copias locales, nunca mutar `ss->cellR`/`ss->sunRad`/`ss->planetRef`
+  in-place**: son la plantilla compartida que reusa todo `spawn_one_system`
+  futuro, y `deathstar_update` lee `ss->cellR` directo para `ds->blastR`.
+  `spawn_system_into_slot` usa `cellRs`/`sunRadS`/`prRef` (variables locales
+  escaladas por `sc`) en su lugar.
+- **La formula de Kepler necesita el radio escalado en LOS DOS lados de la
+  razón**: `speed = baseSpeed * powf(cellRs / rx, 1.5f)` — `rx` ya sale
+  escalado (`cellRs * frac`); si el numerador se dejaba en el `ss->cellR`
+  sin escalar, los sistemas de atrás girarían MÁS rápido (razón invertida),
+  justo al revés de lo que se pedía. Bug real encontrado en el diseño antes
+  de escribir el código, no en pantalla — dejarlo documentado por si se
+  toca esta fórmula de nuevo.
+- **La pasada opaca es la única donde el orden de dibujo importa de
+  verdad**: antes `sys_render` era 4 pasadas GLOBALES intercaladas (todos
+  los anillos, todas las estelas, TODOS los soles, TODOS los planetas, en
+  orden de entidad ECS) — como los planetas se pintaban enteros después de
+  todos los soles, **cualquier planeta de la escena tapaba a cualquier
+  sol**, sin importar el sistema; ese era el bug real detrás de "no se ve
+  cuál está adelante". Se partió en `render_sun_glow` (aditivo, sigue
+  global/sin ordenar — conmuta, no importa el orden), `render_bodies`
+  (recorre las `SYS_LAYER_COUNT` capas de atrás hacia adelante, y dentro de
+  cada capa dibuja sol+planetas de cada sistema de forma atómica — el
+  núcleo del sol se queda a alpha 255 fijo, sin atenuar, a propósito, para
+  no tocar un comportamiento que no se pidió cambiar) y `render_specular`
+  (aditivo, global). Por baldes de capa, no un sort genérico: con
+  `SYS_LAYER_COUNT` chico son 4 barridos filtrados, y dos sistemas de la
+  misma capa comparten escala/alpha — no hay un orden real entre ellos que
+  un sort pudiera capturar mejor.
+- **Estelas**: `trails_append_body` ganó un parámetro `mul` que atenúa
+  `cr/cg/cb` antes de guardarlos (así el color viaja con la columna, inmune
+  a que `solar_system_remove` reindexe sistemas). `trails_init` se reescribió
+  para recorrer sistema por sistema (antes eran dos bloques de copia de
+  color duplicados con un escaneo plano) — de paso quedó arreglado que
+  dejaba `x[]/y[]` en cero de `calloc` en vez de sembrarlos con la posición
+  real, que es lo que `trails_append_body` ya hacía bien.
+- **Fuera de alcance a propósito** (`ponytail:` en el código): orden
+  intra-sistema (un planeta siempre se dibuja encima de su propio sol,
+  nunca detrás según su ángulo de órbita) — barato de agregar con
+  `sinf(oang[e])` si algún día se nota, no era lo pedido.
+
+**Verificación**: arnés headless (mismo patrón documentado abajo, linkea
+`ecs.c spawn.c systems.c`, sin `deathstar.c`) con 200 ciclos de
+remove+spawn confirmando `ss->layer[s] ∈ [0,SYS_LAYER_COUNT)` en todo
+momento (agarra un swap-remove al que se le olvide copiar `layer[s]`) más
+los invariantes viejos de la tabla de anillos. Visualmente: capturas a
+varios seeds/N muestran tamaño y brillo variando claramente sistema a
+sistema (no solo en los que se cruzan), y suelos cálidos con planetas
+cálidos / soles fríos con mezcla fría-neutra consistente.
+
+**Nota importante para cualquier baseline vieja**: los nuevos sorteos de
+RNG (índice de capa, índice de paleta del sol leído antes que antes) corren
+la secuencia de números aleatorios — **cualquier `--seed` de antes de esta
+sesión ahora produce una escena distinta**. No es una regresión, es
+esperado; no comparar capturas viejas de STATUS.md contra el build actual
+pixel a pixel.
 
 ## Cómo verificar cambios futuros en este subsistema
 

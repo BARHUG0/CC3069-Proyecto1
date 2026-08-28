@@ -26,6 +26,17 @@
  * de la geometria real hacia esa ancla, asi que puede ser grande y el
  * sistema puede pasar temporadas fuera de pantalla; no hay guard de bordes
  * porque es un caso aceptado, no un bug.
+ *
+ * sys_render (systems.c) dibuja en 3 pasadas: aditiva (resplandor solar,
+ * atenuado por capa) -> OPACA por capa/sistema (nucleo del sol + planetas —
+ * la unica pasada donde el orden de dibujo importa de verdad, porque las
+ * demas son aditivas y conmutan sin importar el orden) -> aditiva otra vez
+ * (reflejo especular de planeta). La pasada opaca recorre las capas de
+ * profundidad de atras hacia adelante (ver SYS_LAYER_COUNT, spawn.h) y
+ * dentro de cada capa por sistema, no por baldes ordenados con un sort: con
+ * SYS_LAYER_COUNT chico (hoy 4) es simplemente 4 barridos filtrados, y dos
+ * sistemas de la misma capa comparten escala/alpha — no hay una relacion de
+ * "adelante/atras" real entre ellos que un sort pudiera capturar mejor.
  */
 #ifndef SYSTEMS_H
 #define SYSTEMS_H
