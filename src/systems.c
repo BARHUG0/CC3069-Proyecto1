@@ -395,10 +395,10 @@ static void render_trails(const TrailBuffer *tb)
 }
 
 /* Resplandor aditivo de cada sol, atenuado por la capa de profundidad de su
- * sistema (los tres literales de alpha, no el nucleo opaco — ese se dibuja
- * en render_bodies, sin cambios, para no alterar un comportamiento que no
- * se pidio tocar). Global/sin ordenar por capa: aditivo conmuta, no hace
- * falta el orden atras->adelante que si necesita el pase opaco de abajo. */
+ * sistema (los tres literales de alpha; el nucleo opaco se atenua aparte,
+ * en render_bodies mas abajo). Global/sin ordenar por capa: aditivo
+ * conmuta, no hace falta el orden atras->adelante que si necesita el pase
+ * opaco de abajo. */
 static void render_sun_glow(const World *w, const SolarSystems *ss)
 {
     BeginBlendMode(BLEND_ADDITIVE);
@@ -425,8 +425,12 @@ static void render_sun_glow(const World *w, const SolarSystems *ss)
  * primero (SYS_LAYER_COUNT es chico — hoy 4 — asi que son baldes filtrados,
  * no un sort generico; dos sistemas en la misma capa comparten
  * escala/alpha, no hay un orden real que definir entre ellos). Dentro de
- * cada capa dibuja el sol de cada sistema (nucleo opaco, SIN atenuar — a
- * proposito, ver arriba) y sus planetas (atenuados por capa). Asi un
+ * cada capa dibuja el sol de cada sistema y sus planetas, ambos atenuados
+ * por capa (el nucleo del sol tambien — a diferencia de la primera version
+ * de esta funcion, que lo dejaba a 255 fijo a proposito para no tocar un
+ * comportamiento no pedido: el usuario pidio despues que la diferencia
+ * entre capas se notara mas, y el sol es el elemento mas grande/brillante
+ * de cada sistema, asi que dejarlo sin atenuar tapaba el efecto). Asi un
  * sistema de una capa mas al frente siempre tapa a uno de atras, sea
  * sol-sobre-sol, sol-sobre-planeta o planeta-sobre-planeta — antes, con
  * "todos los soles y despues todos los planetas" en orden de entidad, todo
@@ -439,7 +443,7 @@ static void render_sun_glow(const World *w, const SolarSystems *ss)
 static void render_bodies(const World *w, const SolarSystems *ss)
 {
     for (int L = 0; L < SYS_LAYER_COUNT; ++L) {
-        const unsigned char planetA = alpha8(solar_layer_alpha(L));
+        const unsigned char a = alpha8(solar_layer_alpha(L));
         for (int s = 0; s < ss->count; ++s) {
             if (ss->layer[s] != L) {
                 continue;
@@ -447,14 +451,14 @@ static void render_bodies(const World *w, const SolarSystems *ss)
             if (ss->sun[s] != ECS_INVALID) {
                 const Entity e = ss->sun[s];
                 DrawCircleV((Vector2){ w->px[e], w->py[e] }, w->rad[e],
-                           (Color){ w->cr[e], w->cg[e], w->cb[e], 255 });
+                           (Color){ w->cr[e], w->cg[e], w->cb[e], a });
             }
             const int first = ss->ringFirst[s];
             const int last  = first + ss->planetCount[s];
             for (int i = first; i < last; ++i) {
                 const Entity e = ss->ringEntity[i];
                 DrawCircleV((Vector2){ w->px[e], w->py[e] }, w->rad[e],
-                           (Color){ w->cr[e], w->cg[e], w->cb[e], planetA });
+                           (Color){ w->cr[e], w->cg[e], w->cb[e], a });
             }
         }
     }

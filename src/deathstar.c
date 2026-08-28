@@ -146,27 +146,41 @@ static void ds_pick_aim(Rng *rng, float screenW, float screenH, int rightHalf,
 static Texture2D ds_build_skin(Rng *rng)
 {
     const int texW = 512, texH = 256;
-    Image img = GenImageColor(texW, texH, (Color){ 150, 150, 156, 255 });
+    /* Casco mas oscuro que antes (era {150,150,156}, casi gris palido) pero
+     * sin llegar a negro — pedido explicito: "mas oscuro pero no como
+     * negro". Los paneles/trinchera se retuvieron mas abajo por el mismo
+     * ancho de contraste que antes tenian contra su base, asi siguen
+     * legibles en vez de lavarse contra el casco mas oscuro. */
+    Image img = GenImageColor(texW, texH, (Color){ 78, 80, 88, 255 });
 
     /* Meridianos (verticales sobre la esfera) + paralelos (horizontales). */
     for (int y = 0; y < texH; y += 16) {
-        ImageDrawLine(&img, 0, y, texW - 1, y, (Color){ 92, 92, 100, 255 });
+        ImageDrawLine(&img, 0, y, texW - 1, y, (Color){ 112, 115, 125, 255 });
     }
     for (int x = 0; x < texW; x += 32) {
-        ImageDrawLine(&img, x, 0, x, texH - 1, (Color){ 92, 92, 100, 255 });
+        ImageDrawLine(&img, x, 0, x, texH - 1, (Color){ 112, 115, 125, 255 });
     }
 
     /* Trinchera ecuatorial: anillo a latitud fija = banda de X constante. */
     const int eqX  = texW / 2;
     const int half = 8;
-    ImageDrawRectangle(&img, eqX - half, 0, half * 2, texH, (Color){ 68, 68, 76, 255 });
-    ImageDrawLine(&img, eqX, 0, eqX, texH - 1, (Color){ 36, 36, 42, 255 });
+    ImageDrawRectangle(&img, eqX - half, 0, half * 2, texH, (Color){ 46, 45, 52, 255 });
+    ImageDrawLine(&img, eqX, 0, eqX, texH - 1, (Color){ 22, 21, 26, 255 });
 
-    /* Luces amarillas por toda la esfera. */
-    for (int i = 0; i < 140; ++i) {
+    /* Luces por toda la esfera: mas cantidad que antes (140->260) y en 3
+     * tonos calidos en vez de uno solo (blanco-amarillo caliente, ambar,
+     * naranja profundo, elegidos al azar por luz) — mas vivido y mas denso
+     * a la vez, contra el casco ahora mas oscuro se leen mejor. */
+    static const Color LIGHT_TONES[3] = {
+        { 255, 240, 190, 255 }, /* blanco-amarillo caliente */
+        { 255, 214, 110, 255 }, /* ambar (tono original)    */
+        { 255, 160,  70, 255 }  /* naranja profundo         */
+    };
+    for (int i = 0; i < 260; ++i) {
         const int lx = (int)rng_range(rng, 4.0f, (float)(texW - 4));
         const int ly = (int)rng_range(rng, 0.0f, (float)texH);
-        ImageDrawCircle(&img, lx, ly, 1, (Color){ 255, 214, 110, 255 });
+        const uint32_t tone = rng_below(rng, 3u);
+        ImageDrawCircle(&img, lx, ly, 1, LIGHT_TONES[tone]);
     }
 
     const Texture2D tex = LoadTextureFromImage(img);

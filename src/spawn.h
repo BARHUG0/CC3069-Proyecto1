@@ -31,14 +31,14 @@ static inline float solar_layer_scale(int layer)
 {
     if (SYS_LAYER_COUNT <= 1) return 1.0f;
     const float t = (float)layer / (float)(SYS_LAYER_COUNT - 1);
-    return 0.60f + 0.40f * t;
+    return 0.45f + 0.55f * t;
 }
 
 static inline float solar_layer_alpha(int layer)
 {
     if (SYS_LAYER_COUNT <= 1) return 1.0f;
     const float t = (float)layer / (float)(SYS_LAYER_COUNT - 1);
-    return 0.50f + 0.50f * t;
+    return 0.20f + 0.80f * t;
 }
 
 /* Datos de los sistemas solares, tambien en SoA.
