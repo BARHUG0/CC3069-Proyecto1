@@ -3,9 +3,10 @@
 Última revisión: 2026-08-27. Build limpio (`make`, cero warnings con
 `-Wall -Wextra -Wpedantic`). La posición de cada sistema ya no depende de su
 ancla (ver "El diseño de anclas" abajo) y hay una modalidad nueva,
-`--deadstar` (ver esa sección más abajo, **ya en su v5**: el ojo gira pegado
-al cuerpo, hundido con un bisel de socket, se frena cerca del frente, y
-dispara una vez por vuelta a un punto lejos del centro — no lleva `SECS`).
+`--deadstar` (ver esa sección más abajo, **ya en su v6**: el ojo gira pegado
+al cuerpo, hundido con un bisel de socket, se frena y dispara apenas
+aparece — no al llegar al frente exacto — a un punto lejos del centro, y la
+estación es más chica que antes; no lleva `SECS`).
 
 Historial de esta sesión: se retomó con el v4 implementado pero sin
 committear, y con dos `fprintf(stderr, "DBG ...")` de depuración sueltos en
@@ -155,7 +156,7 @@ render de la estación:**
   6. Las luces amarillas cubren **todo el círculo**: en `ds_build_skin` se
      siembran en todo el rango de `v` de la textura de la esfera (0 a
      `texH`), no solo cerca del ecuador.
-- **v5 (3D, la actual — sensación de disparo)**: sobre v4 el usuario pidió
+- **v5 (3D, sensación de disparo)**: sobre v4 el usuario pidió
   4 ajustes de "feel", no de mecánica:
   1. **Ojo encajado, no flotando**: antes el ojo (un disco plano tangente a
      la esfera) quedaba con el borde ligeramente proud de la superficie por
@@ -197,6 +198,47 @@ render de la estación:**
     arranca en 0 en `deathstar_load`; para comparar geometria a angulo fijo
     (como los hundidos de sink) es mucho mas confiable que barrer frames al
     azar esperando acertarle al angulo deseado.
+- **v6 (3D, la actual — disparo atado a la aparicion, no al frente; nave mas
+  chica)**: 3 pedidos mas del usuario sobre v5:
+  1. **Frenar apenas aparece, no en un umbral aparte**: `DS_FRONT_EASE_DEG`
+     (55°, ajustado a ojo en v5) se reemplazo por `ds->frontEaseDeg`,
+     calculado UNA vez en `deathstar_load` a partir de la geometria real
+     (`DS_DISH_CULL_Z`, `DS_DISH_SINK_FRAC`, `DS_DISH_EL_DEG` — formula:
+     `cos(spin) = CULL_Z / ((1-sink)*cos(el))`, despejado con `acosf`; da
+     ~65.36° con los valores actuales). Asi la frenada y el umbral de
+     visibilidad SIEMPRE coinciden, no hay dos numeros ajustados a mano por
+     separado que se puedan desincronizar si se retoca uno y no el otro.
+  2. **Disparar apenas aparece, no al llegar al frente exacto**: el trigger
+     de `deathstar_update` ya no es el cruce de spin=360→0 (`atFront`); es el
+     flanco de subida de una nueva funcion compartida, `ds_dish_fade(ds)`
+     (fraccion de visibilidad 0-1, la misma logica que ya usaba el render
+     para el alpha, ahora extraida a una funcion que usan AMBOS: update para
+     disparar y render para dibujar — una sola fuente de verdad). Se mide
+     ANTES de mover el ojo (dishPos, todavia con la posicion del frame
+     anterior) y DESPUES (ya con `ds->spin` avanzado); `fadeBefore<=0 &&
+     fadeAfter>0` = acaba de aparecer. Con esto el ciclo completo
+     IDLE→CHARGE→FIRE→IDLE queda casi enterito dentro del tramo en que el
+     ojo esta apareciendo (no en el pico de brillo maximo) — verificado con
+     un arnes headless (`deathstar_update` en bucle, dt fijo, sin GPU, mismo
+     patron que describe la seccion de abajo): dispara en spin≈295°
+     (=360-65.36, justo el umbral de aparicion), resuelve en spin≈337°,
+     **23° antes** de llegar al frente exacto.
+  3. **Estacion mas chica**: se veia demasiado grande contra los sistemas
+     solares. `frac` (fraccion de pantalla que ocupa `worldR`, en
+     `deathstar_load`) bajo de 0.30 a 0.19 — un numero a ojo, ajustar si
+     "mas/menos grande" se pide de nuevo. Todo lo demas (`dishR`, `dishH`,
+     etc.) es fraccion de `worldR`, asi que escala junto sin tocar nada mas.
+  - **Nota de verificacion**: para probar SOLO la logica de disparo/frenado
+    sin GPU ni ventana, un arnes que linkea `ecs.c spawn.c systems.c
+    deathstar.c` (deathstar.c se puede linkear aunque tiene simbolos de
+    raylib GPU — el ejecutable solo falla si de verdad LLAMA a
+    `deathstar_load`/`render`, que usan GPU; `deathstar_update` no) funciona
+    perfecto: `memset` un `DeathStar` a cero, fijar a mano `worldR`, `dishR`
+    y `frontEaseDeg` (misma formula de arriba) y llamar `deathstar_update`
+    en bucle con `dt` fijo (p.ej. 1/60). Mucho mas confiable que adivinar
+    `--frames N` contra un FPS real que en este entorno vario 60-200+ entre
+    corridas (el ciclo de disparo completo son ~75 frames de 60fps sobre un
+    total de ~740 frames por vuelta — facil de saltarse de largo adivinando).
 
 **Bug real encontrado y arreglado en esta vuelta (dejar documentado, es
 sutil): NO usar `DrawMesh(mesh, material, MatrixMultiply(MatrixRotate(...),
@@ -373,10 +415,12 @@ colisiones.
 - El azimut/elevación fijos del ojo (`DS_DISH_LOCAL_AZ_DEG=0`,
   `DS_DISH_EL_DEG=20`), el hundido y su bisel (`DS_DISH_SINK_FRAC=0.03`,
   `DS_DISH_BEZEL_EXTRA_SINK=0.025`, escala `1.6` del bisel — ver v5), la
-  zona/velocidad de frenado cerca del frente (`DS_FRONT_EASE_DEG=55`,
-  `DS_SPIN_RATE_MIN=6`, `DS_SPIN_RATE_DEG=48`), la distancia mínima de
-  disparo (`DS_AIM_MIN_DIST_FRAC=0.32`), el umbral de culling/desvanecido
-  (`DS_DISH_CULL_Z=0.38`, `DS_DISH_FADE_Z=0.62`) y el ángulo de cámara
-  (`frac=0.30`, `camDist=6`, `fovy=45`) son valores a ojo, no medidos contra
+  velocidad de crucero/mínima del frenado (`DS_SPIN_RATE_MIN=6`,
+  `DS_SPIN_RATE_DEG=48` — el ANCHO de la zona, `ds->frontEaseDeg`, ya NO es
+  a ojo, ver v6), la distancia mínima de disparo (`DS_AIM_MIN_DIST_FRAC=0.32`),
+  el umbral de culling/desvanecido (`DS_DISH_CULL_Z=0.38`, `DS_DISH_FADE_Z=
+  0.62` — mover cualquiera de estos dos cambia tambien `ds->frontEaseDeg`,
+  son la misma fuente de verdad, ver v6) y el ángulo de cámara/tamaño
+  (`frac=0.19`, `camDist=6`, `fovy=45`) son valores a ojo, no medidos contra
   ninguna referencia — ajuste de constante si se pide "más/menos inclinado",
   "más/menos lento", "más/menos lejos" o "más grande/chico".

@@ -10,15 +10,17 @@
  * en un socket en vez de flotando pegado sobre la superficie. El ojo está
  * FIJO a un punto de la superficie del cuerpo (arriba, con una leve
  * inclinación) y gira CON la estación — no es independiente del spin, y su
- * velocidad de giro no es constante: se frena cerca del frente
- * (ds_spin_rate_deg) para que la carga/disparo tenga tiempo de leerse.
- * Dispara UNA vez por vuelta: exactamente cuando el ojo pasa por el frente
- * (mirando a cámara, cruce de 360°→0° del spin), a un punto al azar pero
- * lejos del centro de pantalla (DS_AIM_MIN_DIST_FRAC — evita tiros cortos
- * pegados a la estación). No hay cronometro de disparo ni valor SECS en la
- * bandera: el ritmo lo fija la velocidad de rotación (DS_SPIN_RATE_DEG). El
- * rayo sale de donde esté el ojo hacia el punto de impacto real (proyectado
- * con GetWorldToScreen). De canto el ojo se desvanece en alpha en vez de
+ * velocidad de giro no es constante: se frena en cuanto el ojo empieza a
+ * aparecer (ds_spin_rate_deg, umbral ds->frontEaseDeg — el mismo angulo en
+ * que arranca el desvanecido de visibilidad, no uno ajustado aparte).
+ * Dispara UNA vez por vuelta, apenas el ojo se vuelve visible (mismo umbral
+ * de nuevo: flanco de subida de la funcion de fade, ds_dish_fade) — no
+ * espera a que llegue al frente exacto — a un punto al azar pero lejos del
+ * centro de pantalla (DS_AIM_MIN_DIST_FRAC — evita tiros cortos pegados a
+ * la estación). No hay cronometro de disparo ni valor SECS en la bandera:
+ * el ritmo lo fija la velocidad de rotación (DS_SPIN_RATE_DEG). El rayo
+ * sale de donde esté el ojo hacia el punto de impacto real (proyectado con
+ * GetWorldToScreen). De canto el ojo se desvanece en alpha en vez de
  * aparecer/desaparecer de golpe (DS_DISH_CULL_Z/DS_DISH_FADE_Z).
  *
  * Mismo estilo del resto del ECS: nada de metodos ni struct por entidad. El
@@ -63,6 +65,10 @@ typedef struct DeathStar {
     float     spin;      /* rotacion del cuerpo (grados), eje Y       */
     float     worldR;    /* radio del cuerpo en unidades de mundo     */
     float     dishR;     /* radio del plato en unidades de mundo      */
+    float     frontEaseDeg; /* grados de spin (a cada lado del frente)
+                             * donde el ojo es visible (ver DS_DISH_CULL_Z);
+                             * calculado en deathstar_load, no a ojo — la
+                             * frenada y el disparo usan este mismo umbral. */
 
     /* Posicion/orientacion del plato. Se recalculan CADA FRAME a partir de
      * ds->spin: el ojo esta fijo a un punto del cuerpo y gira con el. */
@@ -100,8 +106,8 @@ void deathstar_unload(DeathStar *ds); /* antes de CloseWindow */
  * modelos. Se llama junto con build_scene (tecla R, cambio de resolucion). */
 void deathstar_reset(DeathStar *ds);
 
-/* Avanza rotacion (el ojo gira pegado al cuerpo), dispara cuando el ojo pasa
- * por el frente (con resolucion de impacto: destruye el sistema alcanzado),
+/* Avanza rotacion (el ojo gira pegado al cuerpo), dispara apenas el ojo se
+ * vuelve visible (con resolucion de impacto: destruye el sistema alcanzado),
  * explosiones y respawn incremental hasta targetN. */
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt);

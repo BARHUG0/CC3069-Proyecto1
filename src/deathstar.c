@@ -20,14 +20,15 @@
 
 /* Velocidad de giro: ya no es constante (v5). DS_SPIN_RATE_DEG es la
  * velocidad de crucero, lejos del frente; DS_SPIN_RATE_MIN es la velocidad
- * justo al cruzar el frente (spin ~ 0/360, el instante del disparo) —
- * frenar ahi le da tiempo a la carga/disparo a leerse en vez de que el ojo
- * siga girando de largo mientras el rayo converge. DS_FRONT_EASE_DEG es el
- * ancho (grados de spin, a cada lado del frente) de la zona donde se pasa
- * de una velocidad a la otra con suavizado (smoothstep), no de golpe. */
+ * justo al cruzar el frente — frenar ahi le da tiempo a la carga/disparo a
+ * leerse en vez de que el ojo siga girando de largo mientras el rayo
+ * converge. El ancho de la zona de frenado es ds->frontEaseDeg (v6): NO un
+ * numero suelto, se calcula en deathstar_load a partir de DS_DISH_CULL_Z
+ * (mismo angulo en que el ojo empieza a ser visible), asi la frenada y el
+ * disparo (ver deathstar_update) arrancan exactamente cuando aparece, no en
+ * un umbral ajustado a mano por separado que puede desincronizarse. */
 #define DS_SPIN_RATE_DEG   48.0f
 #define DS_SPIN_RATE_MIN    6.0f
-#define DS_FRONT_EASE_DEG  55.0f
 
 /* Periodo del respawn incremental (antes venia de SECS). */
 #define DS_RESPAWN_SECS 6.0f
@@ -72,13 +73,25 @@ static unsigned char ds_alpha8(float a)
 }
 
 /* Velocidad de giro en funcion del spin actual: crucero lejos del frente,
- * frenada suave (smoothstep) cerca de el — ver DS_SPIN_RATE_* arriba. */
-static float ds_spin_rate_deg(float spin)
+ * frenada suave (smoothstep) desde ds->frontEaseDeg (el mismo angulo en que
+ * el ojo se vuelve visible, ver deathstar_load) — ver DS_SPIN_RATE_* arriba. */
+static float ds_spin_rate_deg(float spin, float easeDeg)
 {
     const float distFront = fminf(spin, 360.0f - spin); /* 0 en el frente */
-    float t = ds_clampf(distFront / DS_FRONT_EASE_DEG, 0.0f, 1.0f);
+    float t = ds_clampf(distFront / easeDeg, 0.0f, 1.0f);
     t = t * t * (3.0f - 2.0f * t); /* smoothstep: sin quiebre al entrar/salir */
     return DS_SPIN_RATE_MIN + (DS_SPIN_RATE_DEG - DS_SPIN_RATE_MIN) * t;
+}
+
+/* Fraccion de visibilidad del ojo (0 = invisible/culled, 1 = alpha completo)
+ * segun su profundidad actual — ver DS_DISH_CULL_Z/DS_DISH_FADE_Z. Unica
+ * fuente de verdad: la usan tanto el render (para dibujarlo) como el update
+ * (para frenar y disparar apenas aparece), asi no se desincronizan. */
+static float ds_dish_fade(const DeathStar *ds)
+{
+    const float zRatio = ds->dishPos.z / ds->worldR;
+    return ds_clampf(
+        (zRatio - DS_DISH_CULL_Z) / (DS_DISH_FADE_Z - DS_DISH_CULL_Z), 0.0f, 1.0f);
 }
 
 /* Punto de impacto al azar, pero lejos del centro de pantalla (donde esta la
@@ -213,11 +226,28 @@ void deathstar_load(DeathStar *ds, Rng *rng)
     /* worldR no depende de la resolucion: GetWorldToScreen/el proyector de
      * raylib cubren el alto completo de la ventana con fovy en Y sin
      * importar el ancho, asi que este radio ocupa siempre la misma fraccion
-     * de pantalla y el resize no toca nada. */
-    const float frac = 0.30f;
+     * de pantalla y el resize no toca nada. Bajado de 0.30 a 0.19 (v6): se
+     * veia demasiado grande frente a los sistemas solares (circulos de radio
+     * chico); mas chica se lee como una nave mas en la escena, no como el
+     * centro dominante. */
+    const float frac = 0.19f;
     ds->worldR = frac * ds->cam.position.z * tanf(ds->cam.fovy * 0.5f * DEG2RAD);
     ds->dishR  = ds->worldR * 0.22f;
     const float dishH = ds->dishR * 0.16f;
+
+    /* Angulo (grados de spin, a cada lado del frente) en que el ojo empieza
+     * a ser visible: el mismo umbral que usa ds_dish_fade para el alpha
+     * (DS_DISH_CULL_Z), pero despejado en grados una sola vez aca en vez de
+     * recalculado cada frame — lo usan ds_spin_rate_deg (frenar) y
+     * deathstar_update (disparar) para que ambos arranquen exactamente
+     * cuando aparece, ni antes ni despues (v6, pedido explicito). Formula:
+     * dishPos.z/worldR = (1-sink)*cos(el)*cos(spin) (ver ds_place_dish), asi
+     * que cos(spin) = CULL_Z / ((1-sink)*cos(el)). */
+    {
+        const float denom = (1.0f - DS_DISH_SINK_FRAC) * cosf(DS_DISH_EL_DEG * DEG2RAD);
+        const float c = ds_clampf(DS_DISH_CULL_Z / denom, -1.0f, 1.0f);
+        ds->frontEaseDeg = acosf(c) * RAD2DEG;
+    }
 
     ds->skin = ds_build_skin(rng);
     ds->body = LoadModelFromMesh(GenMeshSphere(ds->worldR, 24, 32));
@@ -314,18 +344,22 @@ static void ds_update_explosions(DeathStar *ds, float dt)
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt)
 {
-    /* Un disparo por vuelta: el cruce de 360 grados es el instante exacto en
-     * que el ojo (az local 0) vuelve a mirar de frente a camara. Se detecta
-     * ANTES de envolver el spin, asi el cruce nunca se pierde. La velocidad
-     * de giro no es constante (ds_spin_rate_deg): se frena cerca del frente. */
-    float rawSpin = ds->spin + ds_spin_rate_deg(ds->spin) * dt;
-    int atFront = 0;
+    /* Frenar y disparar apenas el ojo se vuelve visible, no al llegar al
+     * frente exacto (v6, pedido explicito): flanco de subida de
+     * ds_dish_fade, medido ANTES de mover el ojo (dishPos todavia tiene la
+     * posicion del frame anterior) y DESPUES (ya con el spin nuevo
+     * aplicado) — asi el cruce nunca se pierde aunque un frame lento salte
+     * de golpe. La velocidad de giro no es constante (ds_spin_rate_deg): se
+     * frena desde ds->frontEaseDeg, el mismo umbral de aparicion. */
+    const float fadeBefore = ds_dish_fade(ds);
+    float rawSpin = ds->spin + ds_spin_rate_deg(ds->spin, ds->frontEaseDeg) * dt;
     if (rawSpin >= 360.0f) {
         rawSpin -= 360.0f;
-        atFront = 1;
     }
     ds->spin = rawSpin;
     ds_place_dish(ds); /* el ojo esta fijo al cuerpo: se reubica cada frame */
+    const float fadeAfter = ds_dish_fade(ds);
+    const int justAppeared = (fadeBefore <= 0.0f && fadeAfter > 0.0f);
 
     /* El radio de impacto se ata a la escala real de los sistemas (cellR ya
      * refleja el tamano de celda para el N actual), no a un pixel fijo que se
@@ -334,9 +368,9 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
         ds->blastR = ss->cellR * 1.3f;
     }
 
-    if (atFront && ds->phase == DS_IDLE) {
-        /* Ojo de frente: objetivo al azar, lejos del centro (ver ds_pick_aim
-         * y DS_AIM_MIN_DIST_FRAC arriba). */
+    if (justAppeared && ds->phase == DS_IDLE) {
+        /* Ojo recien aparecido: objetivo al azar, lejos del centro (ver
+         * ds_pick_aim y DS_AIM_MIN_DIST_FRAC arriba). */
         ds_pick_aim(rng, screenW, screenH, &ds->aimX, &ds->aimY);
         ds->phase = DS_CHARGE;
         ds->timer = DS_CHARGE_SECS;
@@ -344,7 +378,7 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
 
     switch (ds->phase) {
     case DS_IDLE:
-        break; /* espera al proximo paso del ojo por el frente, arriba */
+        break; /* espera a que el ojo vuelva a aparecer, arriba */
 
     case DS_CHARGE:
         ds->timer -= dt;
@@ -376,7 +410,7 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
     case DS_FIRE:
         ds->timer -= dt;
         if (ds->timer <= 0.0f) {
-            ds->phase = DS_IDLE; /* el proximo paso por el frente dispara solo */
+            ds->phase = DS_IDLE; /* la proxima vez que el ojo aparezca dispara solo */
         }
         break;
     }
@@ -557,13 +591,11 @@ void deathstar_render(const DeathStar *ds, int screenW, int screenH)
      * el cuerpo), la causa no era la matriz en si (los valores eran finitos
      * y sanos) sino la llamada a DrawMesh cruda. DrawModelEx logra la misma
      * rotacion+traslacion y ya esta probado con el cuerpo. */
-    /* Desvanecido en vez de aparecer/desaparecer de golpe (ver DS_DISH_CULL_Z
-     * / DS_DISH_FADE_Z arriba): alpha 0 por debajo del umbral que evitaba la
-     * astilla de canto (nunca se ve esa geometria degenerada), 1 por encima
-     * de la zona de transicion. */
-    const float dishZRatio = ds->dishPos.z / ds->worldR;
-    const float dishFade = ds_clampf(
-        (dishZRatio - DS_DISH_CULL_Z) / (DS_DISH_FADE_Z - DS_DISH_CULL_Z), 0.0f, 1.0f);
+    /* Desvanecido en vez de aparecer/desaparecer de golpe (ds_dish_fade,
+     * misma funcion que usa deathstar_update para frenar/disparar): alpha 0
+     * por debajo del umbral que evitaba la astilla de canto (nunca se ve esa
+     * geometria degenerada), 1 por encima de la zona de transicion. */
+    const float dishFade = ds_dish_fade(ds);
     if (dishFade > 0.0f) {
         const Vector3 nrm = Vector3Normalize(ds->dishPos);
         BeginBlendMode(BLEND_ALPHA);
