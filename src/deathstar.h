@@ -5,14 +5,14 @@
  * Modelo real (GenMeshSphere + GenMeshCylinder, Camera3D), no primitivas 2D:
  * el cuerpo gira sobre su eje, y el "ojo" (plato del superlaser) es un
  * elemento aparte, chico, texturizado con un degradado radial para que se
- * lea cóncavo. El ojo NUNCA está en el centro del disco visible: vive
- * siempre a un lado (izquierda o derecha, alternando en cada disparo) y su
- * posicion es independiente de la rotacion del cuerpo — si rotara junto con
- * la textura, en cada vuelta pasaria por el centro. El rayo sale de donde
- * esté el ojo hacia el punto de impacto real (proyectado con
- * GetWorldToScreen), asi que no hay forma de que "dispare al frente y no le
- * pegue a nada": el punto final del rayo siempre es el pixel real del
- * objetivo, sea cual sea la posicion del ojo.
+ * lea cóncavo. El ojo está FIJO a un punto de la superficie del cuerpo
+ * (arriba, con una leve inclinación) y gira CON la estación — no es
+ * independiente del spin. Dispara UNA vez por vuelta: exactamente cuando el
+ * ojo pasa por el frente (mirando a cámara, cruce de 360°→0° del spin), a un
+ * punto al azar de toda la pantalla. No hay cronometro de disparo ni valor
+ * SECS en la bandera: el ritmo lo fija la velocidad de rotación
+ * (DS_SPIN_RATE_DEG). El rayo sale de donde esté el ojo hacia el punto de
+ * impacto real (proyectado con GetWorldToScreen).
  *
  * Mismo estilo del resto del ECS: nada de metodos ni struct por entidad. El
  * estado de la estacion es un solo struct (SoA para las explosiones, igual
@@ -57,17 +57,16 @@ typedef struct DeathStar {
     float     worldR;    /* radio del cuerpo en unidades de mundo     */
     float     dishR;     /* radio del plato en unidades de mundo      */
 
-    /* Posicion/orientacion del plato. Se recalculan solo cuando cambia
-     * dishSide (cada disparo), no cada frame: no siguen a ds->spin. */
+    /* Posicion/orientacion del plato. Se recalculan CADA FRAME a partir de
+     * ds->spin: el ojo esta fijo a un punto del cuerpo y gira con el. */
     Vector3 dishPos;
     Vector3 dishRotAxis;
     float   dishRotAngle; /* grados */
-    int     dishSide;     /* +1 derecha, -1 izquierda; alterna por disparo */
 
     /* --- maquina de disparo --- */
     int   phase;
-    float timer;     /* cuenta atras de la fase actual (s)         */
-    float interval;  /* periodo entre disparos, de --deadstar SECS */
+    float timer;      /* cuenta atras de CHARGE/FIRE (s); IDLE no usa timer:
+                       * el disparo lo dispara el cruce del ojo por el frente */
     float aimX, aimY; /* objetivo actual, en pixeles de pantalla    */
     float blastR;     /* radio de impacto, en pixeles               */
     int   kills;
@@ -87,15 +86,15 @@ typedef struct DeathStar {
 } DeathStar;
 
 /* Construye modelos y texturas. Llamar tras InitWindow (GPU ya lista). */
-void deathstar_load(DeathStar *ds, Rng *rng, float secs);
+void deathstar_load(DeathStar *ds, Rng *rng);
 void deathstar_unload(DeathStar *ds); /* antes de CloseWindow */
 
 /* Reinicia la maquina de disparo y las explosiones activas, sin recrear
  * modelos. Se llama junto con build_scene (tecla R, cambio de resolucion). */
 void deathstar_reset(DeathStar *ds);
 
-/* Avanza rotacion, maquina de disparo (con resolucion de impacto: destruye el
- * sistema alcanzado; alterna el lado del ojo en cada disparo nuevo),
+/* Avanza rotacion (el ojo gira pegado al cuerpo), dispara cuando el ojo pasa
+ * por el frente (con resolucion de impacto: destruye el sistema alcanzado),
  * explosiones y respawn incremental hasta targetN. */
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt);

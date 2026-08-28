@@ -21,7 +21,7 @@
 
 #define DEFAULT_WIDTH  1280
 #define DEFAULT_HEIGHT  720
-#define DEFAULT_STARS  1200
+#define DEFAULT_STARS   500
 
 /* Presupuesto de estrellas: lo que queda del mundo tras reservar sitio para
  * todos los soles y planetas posibles. */
@@ -40,8 +40,7 @@ typedef struct Config {
     int          trails;     /* dibujar estelas de sol y planetas  */
     int          vsync;      /* 0 = sin limite, para medir         */
     int          hud;        /* mostrar el panel al arrancar       */
-    int          deadstar;      /* modalidad Estrella de la Muerte    */
-    float        deadstarSecs;  /* periodo entre disparos, en s       */
+    int          deadstar;   /* modalidad Estrella de la Muerte    */
 } Config;
 
 static void print_usage(const char *exe)
@@ -59,7 +58,7 @@ static void print_usage(const char *exe)
     printf("  --no-trails        no dibujar las estelas de sol y planetas\n");
     printf("  --no-vsync         sin sincronia vertical (para medir FPS reales)\n");
     printf("  --hud              arrancar con el panel de datos visible\n");
-    printf("  --deadstar [SECS]  Estrella de la Muerte: dispara cada SECS s (default 5)\n");
+    printf("  --deadstar         Estrella de la Muerte: dispara al pasar el ojo de frente\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
     printf("  -h, --help         esta ayuda\n");
@@ -99,8 +98,7 @@ static int parse_args(int argc, char **argv, Config *cfg)
     cfg->trails     = 1;
     cfg->vsync      = 1;
     cfg->hud        = 0;
-    cfg->deadstar     = 0;
-    cfg->deadstarSecs = 5.0f;
+    cfg->deadstar   = 0;
 
     for (int i = 1; i < argc; ++i) {
         const char *a = argv[i];
@@ -134,18 +132,9 @@ static int parse_args(int argc, char **argv, Config *cfg)
         } else if (strcmp(a, "--hud") == 0) {
             cfg->hud = 1;
         } else if (strcmp(a, "--deadstar") == 0) {
-            /* Valor opcional: si el siguiente argv parsea como numero > 0 se
-             * usa como periodo, si no se queda con el default (5s). */
-            cfg->deadstar     = 1;
-            cfg->deadstarSecs = 5.0f;
-            if (i + 1 < argc) {
-                char *end = NULL;
-                const double sv = strtod(argv[i + 1], &end);
-                if (end != argv[i + 1] && *end == '\0' && sv > 0.0) {
-                    cfg->deadstarSecs = (float)sv;
-                    i += 1;
-                }
-            }
+            /* Bandera pura, sin valor: el ritmo de disparo lo fija la
+             * rotacion (un disparo por vuelta, ver deathstar.h). */
+            cfg->deadstar = 1;
         } else if (strcmp(a, "--screenshot") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Error: --screenshot requiere una ruta.\n");
@@ -239,11 +228,18 @@ static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf
              x + 10, line, 12, (Color){ 190, 200, 220, 255 });
     line += step;
     if (ds != NULL) {
-        const char *phaseName = (ds->phase == DS_IDLE) ? "esperando"
-                               : (ds->phase == DS_CHARGE) ? "cargando" : "FUEGO";
-        DrawText(TextFormat("Estrella de la Muerte: %s (%.1fs)  Sistemas destruidos: %d",
-                            phaseName, ds->timer > 0.0f ? ds->timer : 0.0f, ds->kills),
-                 x + 10, line, 12, (Color){ 255, 170, 140, 255 });
+        /* En IDLE el disparo lo dispara la rotacion (el ojo cruzando un
+         * borde), no un cronometro, asi que ahi no hay cuenta atras que
+         * mostrar. */
+        if (ds->phase == DS_IDLE) {
+            DrawText(TextFormat("Estrella de la Muerte: girando  Sistemas destruidos: %d", ds->kills),
+                     x + 10, line, 12, (Color){ 255, 170, 140, 255 });
+        } else {
+            const char *phaseName = (ds->phase == DS_CHARGE) ? "cargando" : "FUEGO";
+            DrawText(TextFormat("Estrella de la Muerte: %s (%.1fs)  Sistemas destruidos: %d",
+                                phaseName, ds->timer > 0.0f ? ds->timer : 0.0f, ds->kills),
+                     x + 10, line, 12, (Color){ 255, 170, 140, 255 });
+        }
         line += step;
     }
     line += 3;
@@ -339,7 +335,7 @@ int main(int argc, char **argv)
      * pida o no --deadstar. */
     DeathStar deathstar;
     if (cfg.deadstar) {
-        deathstar_load(&deathstar, &rng, cfg.deadstarSecs);
+        deathstar_load(&deathstar, &rng);
     }
 
     const Color bg = BLACK; /* fondo completamente negro, sin tinte */

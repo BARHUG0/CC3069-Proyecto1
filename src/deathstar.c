@@ -10,11 +10,28 @@
 #define DS_EXP_DUR     1.6f
 #define DS_SHOCK_MAXR  140.0f
 
-/* El ojo vive siempre a un lado del cuerpo, nunca en el centro (ver
- * deathstar.h): azimut fijo desde el polo frontal, mas una leve inclinacion
- * hacia el hemisferio norte, como en las referencias de la nave. */
-#define DS_DISH_AZ_DEG 42.0f
-#define DS_DISH_EL_DEG 15.0f
+/* El ojo esta fijo a un punto del cuerpo (arriba, con una leve inclinacion,
+ * como en las referencias de la nave) y gira CON el spin — ver deathstar.h.
+ * DS_DISH_LOCAL_AZ_DEG es su azimut de referencia en el frame del cuerpo
+ * (con az local 0 y spin 0 el ojo mira exactamente a camara); DS_DISH_EL_DEG
+ * es su elevacion, fija. */
+#define DS_DISH_LOCAL_AZ_DEG 0.0f
+#define DS_DISH_EL_DEG       20.0f
+
+/* Velocidad de giro fija (la bandera --deadstar ya no lleva SECS): una
+ * vuelta cada 10 s, y como se dispara una vez por vuelta (cuando el ojo pasa
+ * por el frente, cruce de 360 grados), eso es un disparo cada ~10 s. */
+#define DS_SPIN_RATE_DEG 36.0f
+
+/* Periodo del respawn incremental (antes venia de SECS). */
+#define DS_RESPAWN_SECS 6.0f
+
+/* No dibujar el plato cuando su normal apunta lejos de la camara: visto de
+ * canto el cilindro achatado degenera en una astilla oscura pegada al borde
+ * de la silueta (confirmado tintandolo de rojo — era la "mancha gris" que se
+ * reportaba). Con este umbral desaparece detras del borde antes de
+ * degenerar y reaparece limpio al volver al frente. */
+#define DS_DISH_CULL_Z 0.38f
 
 static float ds_clampf(float v, float lo, float hi)
 {
@@ -31,43 +48,44 @@ static unsigned char ds_alpha8(float a)
 /* --- texturas procedurales -------------------------------------------------
  * Sin archivos de asset: todo con GenImageColor + Image*. */
 
-/* Cuerpo: GenMeshSphere, u = longitud [0,1) en X de textura, v = latitud
- * [0,1] en Y de textura (0 = polo norte, 1 = polo sur) — convencion estandar,
- * confirmada dibujando UNA banda a la vez y mirando el resultado real sobre
- * la esfera (rondas anteriores de esta sesion habian invertido esto dos
- * veces por leer mal una prueba ambigua; esta vez la prueba fue una banda
- * rellena, sin ambiguedad: X constante -> arco vertical polo a polo
- * (meridiano); Y constante -> anillo horizontal a latitud fija (paralelo)).
+/* Cuerpo: los ejes de textura de GenMeshSphere, verificados EMPIRICAMENTE
+ * con los polos ya fijos arriba/abajo (pre-rotacion de 90 en X en
+ * deathstar_load — sin eso los polos miraban a camara y cualquier prueba de
+ * ejes era ambigua porque la esfera tumbaba en vez de girar; de ahi los
+ * flip-flops de rondas anteriores). Prueba definitiva: banda X-constante
+ * roja + banda Y-constante azul, dos capturas a angulos distintos:
+ *   - X constante -> anillo HORIZONTAL a latitud fija, estable con el giro
+ *     (la roja quedo cruzando el ecuador igual en ambas capturas).
+ *   - Y constante -> MERIDIANO polo a polo, gira con el spin (la azul se
+ *     movio y se oculto detras).
  * Por eso:
- *   - paneles verticales (meridianos) -> lineas de X constante (bucle "for x").
- *   - paneles horizontales (paralelos) -> lineas de Y constante (bucle "for y").
- *   - trinchera ecuatorial (anillo a latitud fija = ecuador) -> banda
- *     HORIZONTAL en la imagen (Y constante, ancho completo en X). Vista de
- *     frente se ve como un anillo limpio cruzando el ecuador; vista casi de
- *     canto (en ciertos angulos de rotacion) se ve como una cuna angosta por
- *     el escorzo normal de una banda plana en perspectiva — inevitable con
- *     cualquier motor 3D sin trucos extra, no es un bug de eje. */
+ *   - trinchera ecuatorial -> banda de X constante en texW/2 (queda como
+ *     anillo horizontal estable, ya no barre configuraciones de canto).
+ *   - paneles verticales (meridianos) -> lineas de Y constante.
+ *   - paneles horizontales (paralelos) -> lineas de X constante. */
 static Texture2D ds_build_skin(Rng *rng)
 {
     const int texW = 512, texH = 256;
     Image img = GenImageColor(texW, texH, (Color){ 150, 150, 156, 255 });
 
-    /* Meridianos (verticales) + paralelos (horizontales) — rejilla completa. */
-    for (int x = 0; x < texW; x += 32) {
-        ImageDrawLine(&img, x, 0, x, texH - 1, (Color){ 92, 92, 100, 255 });
-    }
+    /* Meridianos (verticales sobre la esfera) + paralelos (horizontales). */
     for (int y = 0; y < texH; y += 16) {
         ImageDrawLine(&img, 0, y, texW - 1, y, (Color){ 92, 92, 100, 255 });
     }
+    for (int x = 0; x < texW; x += 32) {
+        ImageDrawLine(&img, x, 0, x, texH - 1, (Color){ 92, 92, 100, 255 });
+    }
 
-    const int eqY  = texH / 2;
+    /* Trinchera ecuatorial: anillo a latitud fija = banda de X constante. */
+    const int eqX  = texW / 2;
     const int half = 8;
-    ImageDrawRectangle(&img, 0, eqY - half, texW, half * 2, (Color){ 68, 68, 76, 255 });
-    ImageDrawLine(&img, 0, eqY, texW - 1, eqY, (Color){ 36, 36, 42, 255 });
+    ImageDrawRectangle(&img, eqX - half, 0, half * 2, texH, (Color){ 68, 68, 76, 255 });
+    ImageDrawLine(&img, eqX, 0, eqX, texH - 1, (Color){ 36, 36, 42, 255 });
 
+    /* Luces amarillas por toda la esfera. */
     for (int i = 0; i < 140; ++i) {
-        const int lx = (int)rng_range(rng, 0.0f, (float)texW);
-        const int ly = (int)rng_range(rng, 4.0f, (float)(texH - 4));
+        const int lx = (int)rng_range(rng, 4.0f, (float)(texW - 4));
+        const int ly = (int)rng_range(rng, 0.0f, (float)texH);
         ImageDrawCircle(&img, lx, ly, 1, (Color){ 255, 214, 110, 255 });
     }
 
@@ -98,17 +116,16 @@ static Texture2D ds_build_dish_skin(void)
     return tex;
 }
 
-/* Reposiciona el ojo segun ds->dishSide. Independiente de ds->spin a
- * proposito: si siguiera la rotacion del cuerpo, en cada vuelta pasaria por
- * el centro. Solo se llama cuando dishSide cambia (al elegir cada disparo
- * nuevo), no cada frame. */
+/* Reposiciona el ojo segun ds->spin: esta fijo a un punto del cuerpo, asi que
+ * su azimut mundial es su azimut local mas la rotacion actual. Se llama cada
+ * frame (el cuerpo gira, el ojo gira con el). */
 static void ds_place_dish(DeathStar *ds)
 {
-    const float az = DS_DISH_AZ_DEG * DEG2RAD;
+    const float az = (DS_DISH_LOCAL_AZ_DEG + ds->spin) * DEG2RAD;
     const float el = DS_DISH_EL_DEG * DEG2RAD;
 
     Vector3 n = {
-        (float)ds->dishSide * sinf(az) * cosf(el),
+        sinf(az) * cosf(el),
         sinf(el),
         cosf(az) * cosf(el)
     };
@@ -129,7 +146,7 @@ static void ds_place_dish(DeathStar *ds)
     }
 }
 
-void deathstar_load(DeathStar *ds, Rng *rng, float secs)
+void deathstar_load(DeathStar *ds, Rng *rng)
 {
     ds->cam.position   = (Vector3){ 0.0f, 0.0f, 6.0f };
     ds->cam.target     = (Vector3){ 0.0f, 0.0f, 0.0f };
@@ -150,23 +167,27 @@ void deathstar_load(DeathStar *ds, Rng *rng, float secs)
     ds->body = LoadModelFromMesh(GenMeshSphere(ds->worldR, 24, 32));
     SetMaterialTexture(&ds->body.materials[0], MATERIAL_MAP_DIFFUSE, ds->skin);
 
+    /* GenMeshSphere trae los polos sobre el eje Z (mirando a camara), asi
+     * que girar sobre Y hacia TUMBAR la esfera en vez de girarla como
+     * planeta: el polo barria el frente y los bordes, y la trinchera pasaba
+     * por configuraciones de canto que se veian como una cuna oscura
+     * apuntando al centro (la "mancha gris" reportada, confirmada en el
+     * barrido con tinte). model.transform se aplica ANTES de la rotacion de
+     * DrawModelEx, asi que esta pre-rotacion deja los polos arriba/abajo de
+     * una vez por todas y el spin sobre Y queda como giro de planeta. */
+    ds->body.transform = MatrixRotate((Vector3){ 1.0f, 0.0f, 0.0f }, 90.0f * DEG2RAD);
+
     ds->dishSkin = ds_build_dish_skin();
     ds->dish     = LoadModelFromMesh(GenMeshCylinder(ds->dishR, dishH, 24));
     SetMaterialTexture(&ds->dish.materials[0], MATERIAL_MAP_DIFFUSE, ds->dishSkin);
 
-    ds->spin     = 0.0f;
-    ds->dishSide = (rng_below(rng, 2u) == 0u) ? 1 : -1;
+    ds->spin = 0.0f;
     ds_place_dish(ds);
 
     ds->aimX  = 0.0f;
     ds->aimY  = 0.0f;
     ds->blastR = 90.0f; /* deathstar_update lo reescala con ss->cellR en cuanto corre */
 
-    /* interval ANTES de reset: deathstar_reset siembra timer/respawnTimer a
-     * partir de ds->interval, asi que si se llama con el valor de sobra en
-     * el stack, IDLE arranca con una cuenta atras basura (tipicamente
-     * enorme) y el primer disparo nunca llega. */
-    ds->interval = (secs > 0.0f) ? secs : 5.0f;
     deathstar_reset(ds);
 }
 
@@ -181,8 +202,8 @@ void deathstar_unload(DeathStar *ds)
 void deathstar_reset(DeathStar *ds)
 {
     ds->phase        = DS_IDLE;
-    ds->timer        = ds->interval > 0.0f ? ds->interval : 5.0f;
-    ds->respawnTimer = ds->timer;
+    ds->timer        = 0.0f; /* solo CHARGE/FIRE lo usan */
+    ds->respawnTimer = DS_RESPAWN_SECS;
     ds->kills        = 0;
     ds->expCount     = 0;
 }
@@ -237,10 +258,17 @@ static void ds_update_explosions(DeathStar *ds, float dt)
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt)
 {
-    ds->spin += 6.0f * dt; /* grados/seg, una vuelta cada 60s */
-    if (ds->spin >= 360.0f) {
-        ds->spin -= 360.0f;
+    /* Un disparo por vuelta: el cruce de 360 grados es el instante exacto en
+     * que el ojo (az local 0) vuelve a mirar de frente a camara. Se detecta
+     * ANTES de envolver el spin, asi el cruce nunca se pierde. */
+    float rawSpin = ds->spin + DS_SPIN_RATE_DEG * dt;
+    int atFront = 0;
+    if (rawSpin >= 360.0f) {
+        rawSpin -= 360.0f;
+        atFront = 1;
     }
+    ds->spin = rawSpin;
+    ds_place_dish(ds); /* el ojo esta fijo al cuerpo: se reubica cada frame */
 
     /* El radio de impacto se ata a la escala real de los sistemas (cellR ya
      * refleja el tamano de celda para el N actual), no a un pixel fijo que se
@@ -249,25 +277,17 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
         ds->blastR = ss->cellR * 1.3f;
     }
 
+    if (atFront && ds->phase == DS_IDLE) {
+        /* Ojo de frente: objetivo a un punto al azar de toda la pantalla. */
+        ds->aimX  = rng_range(rng, 0.0f, screenW);
+        ds->aimY  = rng_range(rng, 0.0f, screenH);
+        ds->phase = DS_CHARGE;
+        ds->timer = DS_CHARGE_SECS;
+    }
+
     switch (ds->phase) {
     case DS_IDLE:
-        ds->timer -= dt;
-        if (ds->timer <= 0.0f) {
-            /* El ojo alterna de lado en cada disparo (decision explicita del
-             * usuario) — se decide ANTES de elegir el objetivo, para que el
-             * objetivo quede acotado a esa mitad: el ojo nunca dispara al
-             * lado contrario de donde esta. */
-            ds->dishSide = -ds->dishSide;
-            ds_place_dish(ds);
-
-            const float halfW = screenW * 0.5f;
-            ds->aimX = (ds->dishSide < 0) ? rng_range(rng, 0.0f, halfW)
-                                          : rng_range(rng, halfW, screenW);
-            ds->aimY = rng_range(rng, 0.0f, screenH);
-            ds->phase = DS_CHARGE;
-            ds->timer = DS_CHARGE_SECS;
-        }
-        break;
+        break; /* espera al proximo paso del ojo por el frente, arriba */
 
     case DS_CHARGE:
         ds->timer -= dt;
@@ -299,8 +319,7 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
     case DS_FIRE:
         ds->timer -= dt;
         if (ds->timer <= 0.0f) {
-            ds->phase = DS_IDLE;
-            ds->timer = ds->interval;
+            ds->phase = DS_IDLE; /* el proximo paso por el frente dispara solo */
         }
         break;
     }
@@ -316,10 +335,10 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
             if (s >= 0) {
                 trails_add_system(tb, w, ss, s);
             }
-            ds->respawnTimer = ds->interval;
+            ds->respawnTimer = DS_RESPAWN_SECS;
         }
     } else {
-        ds->respawnTimer = ds->interval;
+        ds->respawnTimer = DS_RESPAWN_SECS;
     }
 }
 
@@ -379,6 +398,17 @@ static void ds_render_beam(const DeathStar *ds)
     EndBlendMode();
 }
 
+/* Explosion por capas, toda analitica (posicion = f(edad), sin estado extra:
+ * la variacion por particula se deriva de partDir/partSpd ya existentes):
+ *   1. destello inicial con puntas de difraccion (mismo truco visual que las
+ *      estrellas brillantes de render_starfield), muere rapido;
+ *   2. doble onda expansiva (choque + termica, velocidades distintas);
+ *   3. nucleo de fuego que decae;
+ *   4. particulas con desaceleracion (no lineales) y color por velocidad:
+ *      las rapidas salen blanco-amarillas, las lentas quedan como brasas
+ *      naranjas/rojizas al final, como en una explosion real;
+ *   5. humo gris residual en la segunda mitad (BLEND_ALPHA, no aditivo),
+ *      para que el final no sea un corte seco. */
 static void ds_render_explosions(const DeathStar *ds)
 {
     if (ds->expCount == 0) {
@@ -390,23 +420,64 @@ static void ds_render_explosions(const DeathStar *ds)
         const float t = ds_clampf(ds->expAge[i] / ds->expDur[i], 0.0f, 1.0f);
         const Vector2 c = { ds->expX[i], ds->expY[i] };
 
+        /* 1. destello + puntas de difraccion */
+        if (t < 0.22f) {
+            const float ft  = 1.0f - t / 0.22f; /* 1 -> 0 */
+            const float len = 90.0f * ft;
+            const Color spike = { 255, 240, 200, ds_alpha8(0.8f * ft) };
+            DrawCircleV(c, 6.0f + 26.0f * ft, (Color){ 255, 255, 235, ds_alpha8(0.9f * ft) });
+            DrawLineEx((Vector2){ c.x - len, c.y }, (Vector2){ c.x + len, c.y }, 2.0f, spike);
+            DrawLineEx((Vector2){ c.x, c.y - len }, (Vector2){ c.x, c.y + len }, 2.0f, spike);
+        }
+
+        /* 2. doble onda expansiva */
         DrawCircleLines((int)c.x, (int)c.y, t * DS_SHOCK_MAXR,
                         (Color){ 255, 200, 120, ds_alpha8((1.0f - t) * 0.7f) });
-        DrawCircleV(c, (1.0f - t) * 34.0f + 4.0f,
-                   (Color){ 255, 230, 180, ds_alpha8((1.0f - t) * (1.0f - t)) });
+        DrawCircleLines((int)c.x, (int)c.y, t * DS_SHOCK_MAXR * 0.6f,
+                        (Color){ 255, 150, 80, ds_alpha8((1.0f - t) * 0.45f) });
 
+        /* 3. nucleo de fuego */
+        DrawCircleV(c, (1.0f - t) * (1.0f - t) * 30.0f + 3.0f,
+                   (Color){ 255, 190, 110, ds_alpha8((1.0f - t) * 0.8f) });
+
+        /* 4. particulas: desaceleracion cuadratica + color por velocidad */
+        const float ease = 1.0f - (1.0f - t) * (1.0f - t); /* 0->1 frenando */
         for (int k = 0; k < DS_EXP_PARTICLES; ++k) {
             const int   idx  = i * DS_EXP_PARTICLES + k;
-            const float dist = ds->partSpd[idx] * ds->expAge[i];
-            if (dist > DS_SHOCK_MAXR * 1.2f) {
-                continue;
-            }
+            const float spd  = ds->partSpd[idx];
+            const float dist = spd * ds->expDur[i] * 0.55f * ease;
+            const float hot  = ds_clampf((spd - 60.0f) / 160.0f, 0.0f, 1.0f);
             const Vector2 p = {
                 c.x + cosf(ds->partDir[idx]) * dist,
                 c.y + sinf(ds->partDir[idx]) * dist
             };
-            DrawCircleV(p, (1.0f - t) * 2.2f + 0.6f,
-                       (Color){ 255, 180, 90, ds_alpha8((1.0f - t) * 0.85f) });
+            DrawCircleV(p, (1.0f - t) * 2.4f + 0.5f,
+                       (Color){ 255,
+                                (unsigned char)(120.0f + 135.0f * hot),
+                                (unsigned char)(60.0f + 150.0f * hot),
+                                ds_alpha8((1.0f - t) * 0.9f) });
+        }
+    }
+    EndBlendMode();
+
+    /* 5. humo residual (alpha normal: es opaco-gris, no luz) */
+    BeginBlendMode(BLEND_ALPHA);
+    for (int i = 0; i < ds->expCount; ++i) {
+        const float t = ds_clampf(ds->expAge[i] / ds->expDur[i], 0.0f, 1.0f);
+        if (t <= 0.45f) {
+            continue;
+        }
+        const float st = (t - 0.45f) / 0.55f; /* 0 -> 1 */
+        const Vector2 c = { ds->expX[i], ds->expY[i] };
+        for (int k = 0; k < 3; ++k) {
+            const int   idx = i * DS_EXP_PARTICLES + k;
+            const float off = 16.0f + 9.0f * (float)k;
+            const Vector2 p = {
+                c.x + cosf(ds->partDir[idx]) * off,
+                c.y + sinf(ds->partDir[idx]) * off
+            };
+            DrawCircleV(p, 14.0f + 26.0f * st,
+                       (Color){ 90, 88, 86, ds_alpha8((1.0f - st) * 0.30f) });
         }
     }
     EndBlendMode();
@@ -429,8 +500,10 @@ void deathstar_render(const DeathStar *ds, int screenW, int screenH)
      * el cuerpo), la causa no era la matriz en si (los valores eran finitos
      * y sanos) sino la llamada a DrawMesh cruda. DrawModelEx logra la misma
      * rotacion+traslacion y ya esta probado con el cuerpo. */
-    DrawModelEx(ds->dish, ds->dishPos, ds->dishRotAxis, ds->dishRotAngle,
-               (Vector3){ 1.0f, 1.0f, 1.0f }, WHITE);
+    if (ds->dishPos.z >= ds->worldR * DS_DISH_CULL_Z) {
+        DrawModelEx(ds->dish, ds->dishPos, ds->dishRotAxis, ds->dishRotAngle,
+                   (Vector3){ 1.0f, 1.0f, 1.0f }, WHITE);
+    }
 
     EndMode3D();
 
