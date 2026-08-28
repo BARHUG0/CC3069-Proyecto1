@@ -13,15 +13,24 @@
  * velocidad de giro no es constante: se frena en cuanto el ojo empieza a
  * aparecer (ds_spin_rate_deg, umbral ds->frontEaseDeg — el mismo angulo en
  * que arranca el desvanecido de visibilidad, no uno ajustado aparte).
- * Dispara UNA vez por vuelta, apenas el ojo se vuelve visible (mismo umbral
- * de nuevo: flanco de subida de la funcion de fade, ds_dish_fade) — no
- * espera a que llegue al frente exacto — a un punto al azar pero lejos del
- * centro de pantalla (DS_AIM_MIN_DIST_FRAC — evita tiros cortos pegados a
- * la estación). No hay cronometro de disparo ni valor SECS en la bandera:
- * el ritmo lo fija la velocidad de rotación (DS_SPIN_RATE_DEG). El rayo
- * sale de donde esté el ojo hacia el punto de impacto real (proyectado con
- * GetWorldToScreen). De canto el ojo se desvanece en alpha en vez de
- * aparecer/desaparecer de golpe (DS_DISH_CULL_Z/DS_DISH_FADE_Z).
+ * Dispara DOS veces por vuelta (v7): apenas el ojo se vuelve visible (flanco
+ * de subida de ds_dish_fade — no espera a llegar al frente exacto) y otra
+ * vez al cruzar el frente exacto (el cruce de spin 360°→0°). Cada disparo
+ * apunta a un punto al azar, lejos del centro de pantalla
+ * (DS_AIM_MIN_DIST_FRAC — evita tiros cortos pegados a la estación), y
+ * restringido al lado de pantalla donde esta el ojo en ese instante: el
+ * disparo de aparicion siempre cae del lado izquierdo (el ojo aparece ahi
+ * por construccion) y el de cruce de frente siempre del lado derecho (ver
+ * el comentario en deathstar_update). La rotacion nunca se detiene del
+ * todo — solo se frena cerca del frente (DS_SPIN_RATE_MIN es un piso, no
+ * cero) — asi que "dos disparos por vuelta" nunca compite con "sigue
+ * girando". No hay cronometro de disparo ni valor SECS en la bandera: el
+ * ritmo lo fija la velocidad de rotación (DS_SPIN_RATE_DEG). El rayo sale
+ * de donde esté el ojo hacia el punto de impacto real (proyectado con
+ * GetWorldToScreen, pero solo en el render — deathstar_update nunca
+ * proyecta nada, para poder correr sin GPU/ventana en el arnes de pruebas).
+ * De canto el ojo se desvanece en alpha en vez de aparecer/desaparecer de
+ * golpe (DS_DISH_CULL_Z/DS_DISH_FADE_Z).
  *
  * Mismo estilo del resto del ECS: nada de metodos ni struct por entidad. El
  * estado de la estacion es un solo struct (SoA para las explosiones, igual
@@ -107,8 +116,9 @@ void deathstar_unload(DeathStar *ds); /* antes de CloseWindow */
 void deathstar_reset(DeathStar *ds);
 
 /* Avanza rotacion (el ojo gira pegado al cuerpo), dispara apenas el ojo se
- * vuelve visible (con resolucion de impacto: destruye el sistema alcanzado),
- * explosiones y respawn incremental hasta targetN. */
+ * vuelve visible y otra vez al cruzar el frente exacto (con resolucion de
+ * impacto: destruye el sistema alcanzado), explosiones y respawn incremental
+ * hasta targetN. */
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt);
 

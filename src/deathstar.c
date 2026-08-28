@@ -95,15 +95,26 @@ static float ds_dish_fade(const DeathStar *ds)
 }
 
 /* Punto de impacto al azar, pero lejos del centro de pantalla (donde esta la
- * estacion): resampleo simple hasta que cae fuera de un radio minimo, con
- * tope de intentos por si el radio pedido no cupiera en pantalla. */
-static void ds_pick_aim(Rng *rng, float screenW, float screenH, float *outX, float *outY)
+ * estacion) y del lado de pantalla donde esta el ojo ahora mismo (rightHalf
+ * — ver el trigger en deathstar_update, que decide el lado por construccion
+ * en vez de proyectar la posicion real del ojo): resampleo simple hasta que
+ * cae fuera de un radio minimo del centro, con tope de intentos. El lado es
+ * una restriccion dura del rango de muestreo; la distancia minima es
+ * best-effort (resampleo, no garantizado) — a proposito, son dos cosas
+ * distintas. */
+static void ds_pick_aim(Rng *rng, float screenW, float screenH, int rightHalf,
+                        float *outX, float *outY)
 {
     const float cx = screenW * 0.5f, cy = screenH * 0.5f;
     const float minDist = fminf(screenW, screenH) * DS_AIM_MIN_DIST_FRAC;
-    float x = cx, y = cy;
+    const float loX = rightHalf ? cx : 0.0f;
+    const float hiX = rightHalf ? screenW : cx;
+    /* Fallback si se agotan los intentos: al 25%/75% del ancho, nunca en el
+     * centro exacto (que si violaria el lado pedido). */
+    float x = screenW * (rightHalf ? 0.75f : 0.25f);
+    float y = cy;
     for (int tries = 0; tries < 20; ++tries) {
-        x = rng_range(rng, 0.0f, screenW);
+        x = rng_range(rng, loX, hiX);
         y = rng_range(rng, 0.0f, screenH);
         const float dx = x - cx, dy = y - cy;
         if (dx * dx + dy * dy >= minDist * minDist) {
@@ -344,16 +355,33 @@ static void ds_update_explosions(DeathStar *ds, float dt)
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt)
 {
-    /* Frenar y disparar apenas el ojo se vuelve visible, no al llegar al
-     * frente exacto (v6, pedido explicito): flanco de subida de
-     * ds_dish_fade, medido ANTES de mover el ojo (dishPos todavia tiene la
-     * posicion del frame anterior) y DESPUES (ya con el spin nuevo
-     * aplicado) — asi el cruce nunca se pierde aunque un frame lento salte
-     * de golpe. La velocidad de giro no es constante (ds_spin_rate_deg): se
-     * frena desde ds->frontEaseDeg, el mismo umbral de aparicion. */
+    /* Frenar apenas el ojo se vuelve visible, no al llegar al frente exacto
+     * (v6): flanco de subida de ds_dish_fade, medido ANTES de mover el ojo
+     * (dishPos todavia tiene la posicion del frame anterior) y DESPUES (ya
+     * con el spin nuevo aplicado) — asi el cruce nunca se pierde aunque un
+     * frame lento salte de golpe. La velocidad de giro no es constante
+     * (ds_spin_rate_deg): se frena desde ds->frontEaseDeg, el mismo umbral
+     * de aparicion.
+     *
+     * Dos disparos por vuelta (v7, pedido explicito): uno apenas aparece
+     * (justAppeared, arriba) y otro al cruzar el frente exacto (atMiddle,
+     * capturado ANTES de envolver el spin — mismo patron que v4/v5 usaban
+     * para "atFront"). El lado de pantalla al que apunta cada uno sale de
+     * CUAL disparo es, no de proyectar ds->dishPos: el disparo de aparicion
+     * ocurre siempre en spin=360-frontEaseDeg (rango (180,360), sin(spin)<0
+     * -> el ojo esta del lado -X del mundo -> pantalla-izquierda, porque
+     * esta camara mira desde +Z con up=+Y, asi que +X mundo es
+     * pantalla-derecha) y el de cruce de frente ocurre siempre justo
+     * despues del envolvido, con spin pequeno y positivo (sin(spin)>=0 ->
+     * pantalla-derecha). No se usa GetWorldToScreen para esto a proposito:
+     * ademas de ser redundante (en el cruce el ojo esta en x~0, ambiguo),
+     * GetWorldToScreen llama a GetScreenWidth() internamente, que devuelve
+     * 0 sin InitWindow — romperia el arnes headless (ver STATUS.md) que
+     * corre deathstar_update sin GPU/ventana. */
     const float fadeBefore = ds_dish_fade(ds);
     float rawSpin = ds->spin + ds_spin_rate_deg(ds->spin, ds->frontEaseDeg) * dt;
-    if (rawSpin >= 360.0f) {
+    const int atMiddle = (rawSpin >= 360.0f);
+    if (atMiddle) {
         rawSpin -= 360.0f;
     }
     ds->spin = rawSpin;
@@ -368,10 +396,15 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
         ds->blastR = ss->cellR * 1.3f;
     }
 
-    if (justAppeared && ds->phase == DS_IDLE) {
-        /* Ojo recien aparecido: objetivo al azar, lejos del centro (ver
-         * ds_pick_aim y DS_AIM_MIN_DIST_FRAC arriba). */
-        ds_pick_aim(rng, screenW, screenH, &ds->aimX, &ds->aimY);
+    if ((justAppeared || atMiddle) && ds->phase == DS_IDLE) {
+        /* Ojo recien aparecido (izquierda) o cruzando el frente (derecha):
+         * objetivo al azar, lejos del centro y del lado que toque (ver
+         * ds_pick_aim arriba). Sin overlap posible entre los dos disparos:
+         * CHARGE+FIRE dura 1.25s y el transito de aparicion a frente son
+         * ~3.8s (integrando ds_spin_rate_deg), asi que el guard de
+         * phase==DS_IDLE de aqui abajo nunca hace falta reforzarlo — en el
+         * peor caso un frame raro se saltaria un disparo, no corrompe nada. */
+        ds_pick_aim(rng, screenW, screenH, atMiddle, &ds->aimX, &ds->aimY);
         ds->phase = DS_CHARGE;
         ds->timer = DS_CHARGE_SECS;
     }

@@ -58,7 +58,7 @@ static void print_usage(const char *exe)
     printf("  --no-trails        no dibujar las estelas de sol y planetas\n");
     printf("  --no-vsync         sin sincronia vertical (para medir FPS reales)\n");
     printf("  --hud              arrancar con el panel de datos visible\n");
-    printf("  --deadstar         Estrella de la Muerte: dispara al pasar el ojo de frente\n");
+    printf("  --deadstar         Estrella de la Muerte: dispara al aparecer el ojo y al pasar el frente\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
     printf("  -h, --help         esta ayuda\n");
@@ -133,7 +133,7 @@ static int parse_args(int argc, char **argv, Config *cfg)
             cfg->hud = 1;
         } else if (strcmp(a, "--deadstar") == 0) {
             /* Bandera pura, sin valor: el ritmo de disparo lo fija la
-             * rotacion (un disparo por vuelta, ver deathstar.h). */
+             * rotacion (dos disparos por vuelta, ver deathstar.h). */
             cfg->deadstar = 1;
         } else if (strcmp(a, "--screenshot") == 0) {
             if (i + 1 >= argc) {
