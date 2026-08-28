@@ -4,7 +4,9 @@
 #include <string.h>
 
 /* Paletas fijas (no hay razon para generar color libre: los colores estelares
- * reales caen en una banda estrecha del azul al ambar).
+ * reales caen en una banda estrecha del azul al ambar). Retunadas para verse
+ * mas vividas/saturadas que la version original (menos pastel), sin tocar la
+ * regla de abajo.
  *
  * Las estrellas de fondo y los soles de los sistemas son ambos "estrellas" en
  * la realidad, pero aqui cumplen roles visuales distintos (fondo lejano vs.
@@ -13,34 +15,55 @@
  * los mas comunes a simple vista por su brillo) y los soles en el extremo
  * calido (tipos G/K/M, como el propio Sol, que es lo que suele tener planetas
  * alrededor). Sin esa separacion, un sol y una estrella de fondo del mismo
- * tono blanco-amarillo se confunden en pantalla. */
+ * tono blanco-amarillo se confunden en pantalla. Subir la saturacion mueve
+ * las estrellas de fondo mas hacia el azul y los soles mas hacia el naranja,
+ * o sea AUMENTA la separacion entre bandas — la regla no corre riesgo con
+ * este retune; solo se rompe si se agrega amarillo al fondo o blanco a los
+ * soles. */
 static const uint8_t STAR_PALETTE[][3] = {
     { 255, 255, 255 }, /* blanca (tipo A)       */
-    { 255, 255, 255 },
-    { 225, 235, 255 }, /* blanca-azulada (F/A)  */
-    { 202, 222, 255 }, /* azul-blanca (B)       */
-    { 170, 200, 255 }  /* azul (O)              */
+    { 255, 255, 255 }, /* duplicada a proposito: pesa 2/5 la blanca pura */
+    { 215, 230, 255 }, /* blanca-azulada (F/A)  */
+    { 170, 205, 255 }, /* azul-blanca (B)       */
+    { 110, 170, 255 }  /* azul (O)              */
 };
 #define STAR_PALETTE_N (sizeof(STAR_PALETTE) / sizeof(STAR_PALETTE[0]))
 
+/* Ordenada frio->calido a proposito: el indice ES el ordinal de calidez que
+ * usa spawn_system_into_slot para decidir el tono de los planetas (ver
+ * spawn_planet mas abajo) — asi ese enlace sobrevive a un futuro retune de
+ * esta tabla, en vez de un umbral de RGB ajustado a mano por separado que
+ * podria desincronizarse (mismo motivo por el que ds->frontEaseDeg en
+ * deathstar.c ya no es una constante suelta). */
 static const uint8_t SUN_PALETTE[][3] = {
-    { 255, 244, 200 }, /* tipo G, como el Sol   */
-    { 255, 214, 130 }, /* tipo K, naranja       */
-    { 255, 176, 110 }, /* K/M, naranja-rojizo   */
-    { 255, 140, 100 }  /* tipo M, enana roja    */
+    { 255, 232, 150 }, /* tipo G, como el Sol   */
+    { 255, 190,  95 }, /* tipo K, naranja       */
+    { 255, 150,  80 }, /* K/M, naranja-rojizo   */
+    { 255, 100,  70 }  /* tipo M, enana roja    */
 };
 #define SUN_PALETTE_N (sizeof(SUN_PALETTE) / sizeof(SUN_PALETTE[0]))
 
+/* Ordenada fria->calida, con dos rangos superpuestos (no dos tablas): un sol
+ * frio (mitad fria de SUN_PALETTE) tira los planetas al rango
+ * [PLANET_COOL_LO,PLANET_COOL_HI), uno calido al rango
+ * [PLANET_WARM_LO,PLANET_WARM_HI) — templado/rocoso caen en ambos por ser
+ * razonablemente neutros, para que ningun sistema se vea monocromo. Motivo
+ * fisico, no solo estetico: la luz reflejada por un planeta esta tenida por
+ * la de su sol, asi que sol calido -> planetas calidos es lo esperable (la
+ * intuicion ingenua es al reves). */
 static const uint8_t PLANET_PALETTE[][3] = {
-    { 120, 190, 235 }, /* oceanico  */
-    { 216, 160, 110 }, /* desertico */
-    { 150, 210, 160 }, /* templado  */
-    { 200, 200, 210 }, /* rocoso    */
-    { 230, 130, 110 }, /* ferroso   */
-    { 180, 150, 220 }, /* helado    */
-    { 240, 220, 160 }  /* gaseoso   */
+    {  70, 170, 235 }, /* oceanico  */
+    { 150, 110, 230 }, /* helado    */
+    { 110, 215, 130 }, /* templado  */
+    { 200, 195, 190 }, /* rocoso    */
+    { 230, 145,  80 }, /* desertico */
+    { 235,  95,  70 }, /* ferroso   */
+    { 245, 200, 110 }  /* gaseoso   */
 };
-#define PLANET_PALETTE_N (sizeof(PLANET_PALETTE) / sizeof(PLANET_PALETTE[0]))
+#define PLANET_COOL_LO 0u /* oceanico..rocoso            */
+#define PLANET_COOL_HI 4u
+#define PLANET_WARM_LO 2u /* templado..gaseoso           */
+#define PLANET_WARM_HI 7u
 
 static float clampf(float v, float lo, float hi)
 {
@@ -80,21 +103,19 @@ Entity spawn_star(World *w, Rng *rng, float screenW, float screenH)
     return e;
 }
 
-static Entity spawn_sun(World *w, Rng *rng, float cx, float cy, float radius)
+static Entity spawn_sun(World *w, Rng *rng, float cx, float cy, float radius, uint32_t pal)
 {
     Entity e = ecs_create(w);
     if (e == ECS_INVALID) {
         return ECS_INVALID;
     }
 
-    const uint32_t p = rng_below(rng, (uint32_t)SUN_PALETTE_N);
-
     w->px[e]  = cx;
     w->py[e]  = cy;
     w->rad[e] = radius;
-    w->cr[e]  = SUN_PALETTE[p][0];
-    w->cg[e]  = SUN_PALETTE[p][1];
-    w->cb[e]  = SUN_PALETTE[p][2];
+    w->cr[e]  = SUN_PALETTE[pal][0];
+    w->cg[e]  = SUN_PALETTE[pal][1];
+    w->cb[e]  = SUN_PALETTE[pal][2];
 
     /* El sol reutiliza C_TWINKLE para latir: base alta y amplitud baja, asi el
      * mismo sistema de centelleo produce pulso solar sin codigo extra. */
@@ -109,14 +130,18 @@ static Entity spawn_sun(World *w, Rng *rng, float cx, float cy, float radius)
 }
 
 static Entity spawn_planet(World *w, Rng *rng, float cx, float cy,
-                           float rx, float ry, float speed, float radius)
+                           float rx, float ry, float speed, float radius, int warm)
 {
     Entity e = ecs_create(w);
     if (e == ECS_INVALID) {
         return ECS_INVALID;
     }
 
-    const uint32_t p = rng_below(rng, (uint32_t)PLANET_PALETTE_N);
+    /* Rango de la paleta segun la calidez del sol del sistema (ver el
+     * comentario de PLANET_PALETTE arriba) — no toda la tabla. */
+    const uint32_t lo = warm ? PLANET_WARM_LO : PLANET_COOL_LO;
+    const uint32_t hi = warm ? PLANET_WARM_HI : PLANET_COOL_HI;
+    const uint32_t p  = lo + rng_below(rng, hi - lo);
 
     w->ocx[e]  = cx;
     w->ocy[e]  = cy;
@@ -142,11 +167,24 @@ static Entity spawn_planet(World *w, Rng *rng, float cx, float cy,
  * planetas del sistema s en (cx,cy), orbitando la ancla anchorIdx, con la
  * geometria de rejilla ya guardada en ss (cellR/sunRad/planetRef). Asume
  * s < MAX_SYSTEMS; el llamador es quien decide si s es un slot nuevo o uno
- * reciclado y ajusta ss->count. */
+ * reciclado y ajusta ss->count.
+ *
+ * `layer` (ver SYS_LAYER_COUNT, spawn.h) hornea la profundidad en la
+ * GEOMETRIA una sola vez aca (radio del sol, radios de orbita, velocidad de
+ * deriva) — el brillo/alpha por capa vive en el render (systems.c), no aca,
+ * para no pelear con sys_twinkle que reescribe w->alpha[e] cada frame para
+ * el sol. IMPORTANTE: usa copias LOCALES escaladas (cellRs/sunRadS/prRef),
+ * nunca ss->cellR/ss->sunRad directamente — esos son la plantilla
+ * compartida que reusan spawn_one_system (cada respawn futuro) y
+ * deathstar_update (ds->blastR); escalarlos in-place corromperia a todos
+ * los sistemas siguientes. */
 static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
-                                   int s, float cx, float cy, int anchorIdx)
+                                   int s, float cx, float cy, int anchorIdx,
+                                   int layer)
 {
     ss->anchor[s] = anchorIdx;
+    ss->layer[s]  = layer;
+    const float sc = solar_layer_scale(layer);
 
     /* Radio y angulo de orbita: geometria real hacia el ancla sorteada, no un
      * sorteo acotado a la mitad del ancla. Un sistema nacido en una mitad
@@ -158,8 +196,10 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
 
     /* Velocidad angular derivada de una velocidad lineal fija (~25-70 px/s),
      * no un rad/s fijo: con radios que varian mucho (~0 a ~1000px), un rad/s
-     * fijo haria que los sistemas de radio grande volaran por la pantalla. */
-    const float v = rng_range(rng, 25.0f, 70.0f);
+     * fijo haria que los sistemas de radio grande volaran por la pantalla.
+     * Escalada por capa (sc): los sistemas de atras tambien derivan mas
+     * lento, otra pista barata de distancia. */
+    const float v = rng_range(rng, 25.0f, 70.0f) * sc;
     float ospd = (radius > 1.0f) ? v / radius : 0.3f;
     ospd = rng_sign(rng) * clampf(ospd, 0.03f, 0.5f);
 
@@ -170,7 +210,20 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
     ss->cx[s]        = cx;
     ss->cy[s]        = cy;
     ss->ringFirst[s] = ss->ringTotal;
-    ss->sun[s]       = spawn_sun(w, rng, cx, cy, ss->sunRad);
+
+    /* Copias locales escaladas por capa — ver el comentario de la funcion. */
+    const float cellRs  = ss->cellR * sc;
+    const float sunRadS = ss->sunRad * sc;
+    const float prRef   = ss->planetRef * sc;
+
+    /* El indice de SUN_PALETTE se saca ANTES de llamar a spawn_sun (mismo
+     * orden de sorteo de RNG que antes, spawn_sun lo dibujaba como su primer
+     * numero) para poder derivar la calidez del sistema: mitad fria de la
+     * tabla (indices 0..N/2) -> planetas frios, mitad calida -> planetas
+     * calidos. Ver el comentario de PLANET_PALETTE. */
+    const uint32_t sunPal = rng_below(rng, (uint32_t)SUN_PALETTE_N);
+    const int      warm   = (sunPal >= SUN_PALETTE_N / 2);
+    ss->sun[s] = spawn_sun(w, rng, cx, cy, sunRadS, sunPal);
 
     const int planets = MIN_PLANETS +
         (int)rng_below(rng, (uint32_t)(MAX_PLANETS_PER_SYS - MIN_PLANETS + 1));
@@ -185,25 +238,29 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
             break;
         }
 
-        /* Radios escalonados de 0.26 a 1.0 del radio de celda. */
+        /* Radios escalonados de 0.26 a 1.0 del radio de celda (ya escalado
+         * por capa). */
         const float frac = 0.26f + 0.74f * ((float)(i + 1) / (float)planets)
                                  + rng_range(rng, -0.025f, 0.025f);
-        float rx = ss->cellR * frac;
+        float rx = cellRs * frac;
         float ry = rx * rng_range(rng, 0.45f, 1.0f); /* elipse achatada */
 
-        const float pr = ss->planetRef * rng_range(rng, 0.65f, 1.35f);
+        const float pr = prRef * rng_range(rng, 0.65f, 1.35f);
 
         /* Que el planeta no quede dentro del sol. */
-        const float minR = ss->sunRad + pr + 3.0f;
+        const float minR = sunRadS + pr + 3.0f * sc;
         if (rx < minR) rx = minR;
         if (ry < minR) ry = minR;
 
         /* Tercera ley de Kepler aproximada: T^2 ~ a^3, luego w ~ a^-1.5.
-         * Los planetas interiores giran mas rapido que los exteriores. */
-        float speed = baseSpeed * powf(ss->cellR / rx, 1.5f);
+         * Los planetas interiores giran mas rapido que los exteriores.
+         * cellRs, no ss->cellR: los dos lados de la razon deben estar en la
+         * misma escala, si no los sistemas de atras girarian MAS rapido
+         * (proporcion invertida), justo al reves de lo que se quiere. */
+        float speed = baseSpeed * powf(cellRs / rx, 1.5f);
         speed = clampf(speed, 0.05f, 3.0f) * spin;
 
-        const Entity pe = spawn_planet(w, rng, cx, cy, rx, ry, speed, pr);
+        const Entity pe = spawn_planet(w, rng, cx, cy, rx, ry, speed, pr, warm);
         if (pe == ECS_INVALID) {
             break; /* mundo lleno */
         }
@@ -277,6 +334,23 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         assign[j] = tmp;
     }
 
+    /* Mismo reparto barajado para la capa de profundidad (ver
+     * SYS_LAYER_COUNT, spawn.h): un rng_below(rng, SYS_LAYER_COUNT)
+     * independiente por sistema es exactamente el volado independiente que
+     * se rechazo arriba para las anclas — con N chico puede amontonar casi
+     * todos los sistemas en una sola capa y la sensacion de profundidad no
+     * se nota. s % SYS_LAYER_COUNT reparte parejo, el shuffle desordena. */
+    int lay[MAX_SYSTEMS];
+    for (int s = 0; s < n; ++s) {
+        lay[s] = s % SYS_LAYER_COUNT;
+    }
+    for (int s = n - 1; s > 0; --s) {
+        const int j = (int)rng_below(rng, (uint32_t)(s + 1));
+        const int tmp = lay[s];
+        lay[s] = lay[j];
+        lay[j] = tmp;
+    }
+
     for (int s = 0; s < n; ++s) {
         /* Posicion propia del sistema: rejilla + jitter, sin mirar el ancla
          * que le toco. Puede caer en cualquier mitad de pantalla. */
@@ -285,7 +359,7 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         const float cx = (col + 0.5f) * ss->cellW + rng_range(rng, -ss->jitter, ss->jitter);
         const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
-        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s]);
+        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s], lay[s]);
     }
 }
 
@@ -306,6 +380,20 @@ int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
     const int anchorIdx = (count0 != count1) ? (count0 < count1 ? 0 : 1)
                                               : (int)rng_below(rng, 2u);
 
+    /* Capa = la menos poblada ahora mismo (empate = la de menor indice):
+     * mismo motivo que el balance de ancla arriba, adaptado a mas de dos
+     * baldes. */
+    int layCount[SYS_LAYER_COUNT] = { 0 };
+    for (int i = 0; i < ss->count; ++i) {
+        layCount[ss->layer[i]]++;
+    }
+    int layer = 0;
+    for (int L = 1; L < SYS_LAYER_COUNT; ++L) {
+        if (layCount[L] < layCount[layer]) {
+            layer = L;
+        }
+    }
+
     /* Celda al azar de la misma rejilla del spawn inicial. Solaparse con un
      * sistema vivo es aceptado a proposito, igual que en el spawn inicial. */
     const int col = (int)rng_below(rng, (uint32_t)ss->gridCols);
@@ -314,7 +402,7 @@ int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
     const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
     const int s = ss->count;
-    spawn_system_into_slot(w, ss, rng, s, cx, cy, anchorIdx);
+    spawn_system_into_slot(w, ss, rng, s, cx, cy, anchorIdx, layer);
     ss->count++;
     return s;
 }
@@ -367,6 +455,7 @@ void solar_system_remove(World *w, SolarSystems *ss, int s)
         ss->orbRad[s]      = ss->orbRad[last];
         ss->orbAng[s]      = ss->orbAng[last];
         ss->orbSpd[s]      = ss->orbSpd[last];
+        ss->layer[s]       = ss->layer[last];
     }
     ss->count--;
 }
