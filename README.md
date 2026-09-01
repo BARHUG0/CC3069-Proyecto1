@@ -80,30 +80,37 @@ Debe ejecutarse con `--no-vsync` y sin `--target-fps`:
 screensaver 256 --stars 500 --seed 20260831 --width 1280 --height 720 --no-vsync --benchmark
 ```
 
-El script de PowerShell compila el programa, prueba por defecto entre 1 y 256
-sistemas, ejecuta cinco corridas por input y guarda las mediciones y su resumen
-en `benchmark-results`:
+El script de PowerShell compila el programa y busca por defecto el máximo de
+sistemas estable a 10, 30, 60, 90 y 120 FPS con 500 estrellas. Ejecuta cinco
+corridas por input y guarda las mediciones y su resumen en
+`benchmark-results`:
 
 ```powershell
-.\scripts\benchmark.ps1 -SystemCounts 1,8,16,32,64,128,256 -TargetFps 60 -Runs 5
+.\scripts\benchmark.ps1
 ```
 
-El archivo `runs` contiene los parámetros, segundos, fotogramas, FPS medio,
-peor promedio de un intervalo real de un segundo, promedio y mínimo de
-`GetFPS`, commit y datos principales del equipo. El archivo `summary` contiene
-una fila por cantidad de sistemas con media, mediana, desviación estándar y
-cantidad de corridas estables. Un input se considera estable únicamente si su
-peor intervalo de un segundo alcanza `TargetFps` en todas las corridas. El
-script informa el mayor input medido que cumple ese criterio.
+El archivo `runs` contiene cada corrida con sus parámetros, segundos,
+fotogramas, FPS medio, peor intervalo de un segundo, commit y datos principales
+del equipo. El archivo `summary` contiene una fila por cantidad medida con
+media, mediana y desviación estándar. `stability-points` guarda el máximo
+estable y el primer valor inestable para cada objetivo. Un input se considera
+estable únicamente si el peor intervalo de un segundo de todas sus corridas
+alcanza el objetivo.
 
 El archivo `hardware` guarda en JSON la CPU, sus núcleos y frecuencia máxima,
 junto con la GPU, controlador, resolución y frecuencia de actualización.
 
-Cada combinación tarda cerca de 13 segundos por corrida, incluidos 3 segundos
-de calentamiento. Para una revisión rápida puede usarse:
+Cada corrida tarda cerca de 13 segundos, incluidos 3 segundos de calentamiento.
+Para una revisión rápida puede usarse:
 
 ```powershell
-.\scripts\benchmark.ps1 -SystemCounts 1,64,128,256 -TargetFps 60 -Runs 2
+.\scripts\benchmark.ps1 -TargetFpsValues 60 -MaxSystems 64 -Runs 2
+```
+
+Una ejecución interrumpida puede continuar a partir de su archivo `runs`:
+
+```powershell
+.\scripts\benchmark.ps1 -ResumeRunsFile .\benchmark-results\runs-AAAAMMDD-HHMMSS.csv
 ```
 
 Para comparar resultados deben mantenerse la misma semilla, resolución,

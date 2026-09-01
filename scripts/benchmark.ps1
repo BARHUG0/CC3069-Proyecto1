@@ -1,11 +1,14 @@
 [CmdletBinding()]
 param(
     [ValidateNotNullOrEmpty()]
-    [ValidateRange(1, 256)]
-    [int[]]$SystemCounts = @(1, 2, 4, 8, 16, 32, 64, 128, 256),
+    [ValidateRange(1, 1000)]
+    [int[]]$TargetFpsValues = @(10, 30, 60, 90, 120),
 
     [ValidateRange(0, 1000000)]
     [int]$Stars = 500,
+
+    [ValidateRange(1, 256)]
+    [int]$MaxSystems = 256,
 
     [uint32]$Seed = 20260831,
 
@@ -18,12 +21,11 @@ param(
     [ValidateRange(1, 100)]
     [int]$Runs = 5,
 
-    [ValidateRange(1, 1000)]
-    [int]$TargetFps = 60,
-
     [string]$MakeCommand = "mingw32-make",
 
-    [string]$OutputDirectory = "benchmark-results"
+    [string]$OutputDirectory = "benchmark-results",
+
+    [string]$ResumeRunsFile
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +33,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $executable = Join-Path $projectRoot "screensaver.exe"
 $resultsPath = Join-Path $projectRoot $OutputDirectory
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$SystemCounts = @($SystemCounts | Sort-Object -Unique)
+$TargetFpsValues = @($TargetFpsValues | Sort-Object -Unique)
 
 function Invoke-CheckedCommand {
     param(
@@ -88,12 +90,81 @@ try {
         })
     }
 
-    $rows = @()
-    foreach ($systems in $SystemCounts) {
-        for ($run = 1; $run -le $Runs; $run++) {
-            Write-Host "Sistemas $systems, corrida $run de $Runs"
+    New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
+    $runsFile = Join-Path $resultsPath "runs-$timestamp.csv"
+    $summaryFile = Join-Path $resultsPath "summary-$timestamp.csv"
+    $stabilityFile = Join-Path $resultsPath "stability-points-$timestamp.csv"
+    $hardwareFile = Join-Path $resultsPath "hardware-$timestamp.json"
+    $hardware | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $hardwareFile -Encoding utf8
+
+    $rows = [Collections.Generic.List[object]]::new()
+    if ($ResumeRunsFile) {
+        $resumePath = (Resolve-Path -LiteralPath $ResumeRunsFile).Path
+        foreach ($row in Import-Csv -LiteralPath $resumePath) {
+            if ([int]$row.Stars -ne $Stars -or [int]$row.Width -ne $Width -or
+                [int]$row.Height -ne $Height -or [uint32]$row.Seed -ne $Seed) {
+                throw "El archivo de reanudacion no coincide con estrellas, resolucion o semilla."
+            }
+            $rows.Add($row)
+        }
+        Write-Host "Se cargaron $($rows.Count) corridas desde $resumePath"
+    }
+    $measurements = @{}
+
+    function Update-Measurement {
+        param(
+            [Parameter(Mandatory)]
+            [int]$Systems
+        )
+
+        $systemRows = @($rows | Where-Object Systems -eq $Systems)
+        $fps = @($systemRows | ForEach-Object { [double]$_.AverageFps } | Sort-Object)
+        $mean = ($fps | Measure-Object -Average).Average
+        if ($fps.Count % 2 -eq 0) {
+            $middle = $fps.Count / 2
+            $median = ($fps[$middle - 1] + $fps[$middle]) / 2.0
+        } else {
+            $median = $fps[[math]::Floor($fps.Count / 2)]
+        }
+        $variance = ($fps | ForEach-Object { [math]::Pow($_ - $mean, 2) } |
+            Measure-Object -Average).Average
+        $measurement = [pscustomobject]@{
+            Systems = $Systems
+            Runs = $systemRows.Count
+            MeanFps = [math]::Round($mean, 3)
+            MedianFps = [math]::Round($median, 3)
+            WorstOneSecondFps = [math]::Round(
+                ($systemRows.OneSecondMinFps | Measure-Object -Minimum).Minimum, 3)
+            StandardDeviationFps = [math]::Round([math]::Sqrt($variance), 3)
+        }
+        $measurements[$Systems] = $measurement
+        return $measurement
+    }
+
+    function Measure-Systems {
+        param(
+            [Parameter(Mandatory)]
+            [int]$Systems,
+
+            [switch]$AdditionalRuns
+        )
+
+        if ($measurements.ContainsKey($Systems) -and -not $AdditionalRuns) {
+            return $measurements[$Systems]
+        }
+
+        $firstRun = @($rows | Where-Object Systems -eq $Systems).Count + 1
+        $acceptedRuns = 0
+        $attempts = 0
+        while ($acceptedRuns -lt $Runs) {
+            $attempts++
+            if ($attempts -gt $Runs * 3) {
+                throw "No se pudieron completar $Runs corridas validas con $Systems sistemas."
+            }
+            $run = $firstRun + $acceptedRuns
+            Write-Host "Sistemas $Systems, corrida $($acceptedRuns + 1) de $Runs"
             $arguments = @(
-                "$systems",
+                "$Systems",
                 "--stars", "$Stars",
                 "--seed", "$Seed",
                 "--width", "$Width",
@@ -105,20 +176,21 @@ try {
             $benchmarkLines = @($output | Where-Object { $_ -like "BENCHMARK_CSV,*" })
 
             if ($benchmarkLines.Count -ne 1) {
-                throw "La corrida $run con $systems sistemas produjo $($benchmarkLines.Count) lineas BENCHMARK_CSV."
+                throw "La corrida $run con $Systems sistemas produjo $($benchmarkLines.Count) lineas BENCHMARK_CSV."
             }
 
             $fields = $benchmarkLines[0] -split ","
             if ($fields.Count -ne 13) {
-                throw "La corrida $run con $systems sistemas produjo una linea BENCHMARK_CSV invalida."
+                throw "La corrida $run con $Systems sistemas produjo una linea BENCHMARK_CSV invalida."
             }
             if ([int]$fields[12] -ne 10) {
-                throw "La corrida $run con $systems sistemas no produjo 10 intervalos completos."
+                Write-Warning "La corrida $run con $Systems sistemas produjo $($fields[12]) intervalos; se repetira."
+                continue
             }
 
             $oneSecondMinFps = [double]::Parse(
                 $fields[9], [Globalization.CultureInfo]::InvariantCulture)
-            $rows += [pscustomobject]@{
+            $rows.Add([pscustomobject]@{
                 Run = $run
                 Timestamp = (Get-Date).ToString("o")
                 Commit = $commit
@@ -140,57 +212,128 @@ try {
                 GetFpsAverage = [double]::Parse($fields[10], [Globalization.CultureInfo]::InvariantCulture)
                 GetFpsMin = [int]$fields[11]
                 Samples = [int]$fields[12]
-                TargetFps = $TargetFps
-                Stable = $oneSecondMinFps -ge $TargetFps
+            })
+            $acceptedRuns++
+        }
+
+        $rows | Export-Csv -LiteralPath $runsFile -NoTypeInformation -Encoding utf8
+        return Update-Measurement -Systems $Systems
+    }
+
+    foreach ($systems in @($rows.Systems | ForEach-Object { [int]$_ } | Sort-Object -Unique)) {
+        Update-Measurement -Systems $systems | Out-Null
+    }
+
+    function Find-StabilityPoints {
+        foreach ($targetFps in $TargetFpsValues) {
+            Write-Host "Buscando limite estable para $targetFps FPS"
+            $low = 0
+            $high = $MaxSystems + 1
+            $maximum = Measure-Systems -Systems $MaxSystems
+            if ($maximum.WorstOneSecondFps -ge $targetFps) {
+                $low = $MaxSystems
+            } else {
+                $high = $MaxSystems
+                while ($high - $low -gt 1) {
+                    $candidate = [math]::Floor(($low + $high) / 2)
+                    $measurement = Measure-Systems -Systems $candidate
+                    if ($measurement.WorstOneSecondFps -ge $targetFps) {
+                        $low = $candidate
+                    } else {
+                        $high = $candidate
+                    }
+                }
+            }
+
+            $stableMeasurement = if ($low -gt 0) {
+                Measure-Systems -Systems $low
+            } else {
+                $null
+            }
+            $unstableMeasurement = if ($high -le $MaxSystems) {
+                Measure-Systems -Systems $high
+            } else {
+                $null
+            }
+
+            [pscustomobject]@{
+                TargetFps = $targetFps
+                MaxStableSystems = $low
+                Stars = $Stars
+                WorstOneSecondFps = if ($null -ne $stableMeasurement) {
+                    $stableMeasurement.WorstOneSecondFps
+                } else {
+                    $null
+                }
+                Runs = if ($null -ne $stableMeasurement) {
+                    $stableMeasurement.Runs
+                } else {
+                    $Runs
+                }
+                Width = $Width
+                Height = $Height
+                Seed = $Seed
+                FirstUnstableSystems = if ($null -ne $unstableMeasurement) {
+                    $unstableMeasurement.Systems
+                } else {
+                    $null
+                }
+                FirstUnstableWorstOneSecondFps = if ($null -ne $unstableMeasurement) {
+                    $unstableMeasurement.WorstOneSecondFps
+                } else {
+                    $null
+                }
+                RunsFile = $runsFile
+                SummaryFile = $summaryFile
+                HardwareFile = $hardwareFile
             }
         }
     }
 
-    New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
-    $runsFile = Join-Path $resultsPath "runs-$timestamp.csv"
-    $summaryFile = Join-Path $resultsPath "summary-$timestamp.csv"
-    $hardwareFile = Join-Path $resultsPath "hardware-$timestamp.json"
-    $rows | Export-Csv -LiteralPath $runsFile -NoTypeInformation -Encoding utf8
-    $hardware | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $hardwareFile -Encoding utf8
-
-    $summaryRows = foreach ($group in $rows | Group-Object Systems | Sort-Object { [int]$_.Name }) {
-        $fps = @($group.Group | ForEach-Object { [double]$_.AverageFps } | Sort-Object)
-        $mean = ($fps | Measure-Object -Average).Average
-        if ($fps.Count % 2 -eq 0) {
-            $middle = $fps.Count / 2
-            $median = ($fps[$middle - 1] + $fps[$middle]) / 2.0
-        } else {
-            $median = $fps[[math]::Floor($fps.Count / 2)]
+    $stabilityRows = @(Find-StabilityPoints)
+    $conflicts = @()
+    foreach ($targetFps in $TargetFpsValues) {
+        $ordered = @($measurements.Values | Sort-Object Systems)
+        for ($i = 0; $i -lt $ordered.Count; $i++) {
+            for ($j = $i + 1; $j -lt $ordered.Count; $j++) {
+                if ($ordered[$i].WorstOneSecondFps -lt $targetFps -and
+                    $ordered[$j].WorstOneSecondFps -ge $targetFps) {
+                    $conflicts += $ordered[$i].Systems
+                    $conflicts += $ordered[$j].Systems
+                }
+            }
         }
-        $variance = ($fps | ForEach-Object { [math]::Pow($_ - $mean, 2) } |
-            Measure-Object -Average).Average
-        $stableRuns = @($group.Group | Where-Object Stable).Count
+    }
 
+    if ($conflicts.Count -gt 0) {
+        $conflicts = @($conflicts | Sort-Object -Unique)
+        Write-Host "Repitiendo puntos con resultados no monotonicos: $($conflicts -join ', ')"
+        foreach ($systems in $conflicts) {
+            Measure-Systems -Systems $systems -AdditionalRuns | Out-Null
+        }
+        $stabilityRows = @(Find-StabilityPoints)
+    }
+
+    $summaryRows = @($measurements.Values | Sort-Object Systems | ForEach-Object {
         [pscustomobject]@{
-            Systems = [int]$group.Name
-            Runs = $Runs
-            TargetFps = $TargetFps
-            StableRuns = $stableRuns
-            Stable = $stableRuns -eq $Runs
-            MeanFps = [math]::Round($mean, 3)
-            MedianFps = [math]::Round($median, 3)
-            WorstOneSecondFps = [math]::Round(
-                ($group.Group.OneSecondMinFps | Measure-Object -Minimum).Minimum, 3)
-            StandardDeviationFps = [math]::Round([math]::Sqrt($variance), 3)
+            Systems = $_.Systems
+            Stars = $Stars
+            Runs = $_.Runs
+            MeanFps = $_.MeanFps
+            MedianFps = $_.MedianFps
+            WorstOneSecondFps = $_.WorstOneSecondFps
+            StandardDeviationFps = $_.StandardDeviationFps
             RunsFile = $runsFile
             HardwareFile = $hardwareFile
         }
-    }
+    })
     $summaryRows | Export-Csv -LiteralPath $summaryFile -NoTypeInformation -Encoding utf8
+    $stabilityRows | Export-Csv -LiteralPath $stabilityFile -NoTypeInformation -Encoding utf8
 
-    $maxStable = @($summaryRows | Where-Object Stable | Sort-Object Systems)[-1]
-    if ($null -eq $maxStable) {
-        Write-Host "Ningun input medido mantuvo $TargetFps FPS en todas las corridas."
-    } else {
-        Write-Host "Mayor input estable medido: $($maxStable.Systems) sistemas a $TargetFps FPS."
-    }
+    $stabilityRows | Format-Table TargetFps, MaxStableSystems, Stars, WorstOneSecondFps
     Write-Host "Resultados: $runsFile"
     Write-Host "Resumen: $summaryFile"
+    Write-Host "Puntos de estabilidad: $stabilityFile"
     Write-Host "Hardware: $hardwareFile"
 }
 finally {

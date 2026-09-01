@@ -1,0 +1,27 @@
+{
+  "Processors": [
+    {
+      "Name": "AMD Ryzen 5 8645HS w/ Radeon 760M Graphics",
+      "Manufacturer": "AuthenticAMD",
+      "PhysicalCores": 6,
+      "LogicalProcessors": 12,
+      "MaxClockMHz": 4301
+    }
+  ],
+  "Graphics": [
+    {
+      "Name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+      "VideoProcessor": "NVIDIA GeForce RTX 4050 Laptop GPU",
+      "DriverVersion": "32.0.16.1088",
+      "CurrentResolution": "3840x2160",
+      "CurrentRefreshRateHz": 30
+    },
+    {
+      "Name": "AMD Radeon(TM) Graphics",
+      "VideoProcessor": "AMD Radeon Graphics Processor (0x1900)",
+      "DriverVersion": "32.0.11020.6003",
+      "CurrentResolution": "1920x1080",
+      "CurrentRefreshRateHz": 144
+    }
+  ]
+}
