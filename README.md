@@ -10,7 +10,7 @@ Screensaver de campo de estrellas + N sistemas solares, en C11 con [raylib](http
 
 ## Windows (MSYS2 UCRT64)
 
-raylib va vendorizado en `vendor/raylib` — no hace falta instalarlo aparte.
+raylib va en `vendor/raylib`
 
 1. Instala [MSYS2](https://www.msys2.org/) y abre la terminal **UCRT64** (no MSYS ni MINGW64).
 2. Instala el toolchain:
@@ -56,6 +56,9 @@ screensaver N [opciones]
 | `--no-vsync` | sin vsync (para medir FPS reales) |
 | `--hud` | arrancar con el panel de datos visible |
 | `--deadstar` | activar la Estrella de la Muerte controlable |
+| `--deadstar-static` | mostrar la Estrella de la Muerte sin animarla |
+| `--target-fps F` | limitar la ejecución a F FPS mediante `SetTargetFPS` |
+| `--benchmark` | medir FPS durante 10 segundos tras 3 segundos de calentamiento |
 | `--frames K` | salir tras K fotogramas (pruebas) |
 | `--screenshot RUTA` | guardar un PNG y seguir (pruebas) |
 | `-h`, `--help` | ayuda |
@@ -63,6 +66,51 @@ screensaver N [opciones]
 Controles en ejecución: `H` panel de datos, `O` órbitas, `T` estelas, `P` pausa, `R` reset y `F` fullscreen.
 
 Con `--deadstar`: `W`, `A`, `S` y `D` mueven la Estrella de la Muerte. `Espacio` dispara a un sistema solar elegido al azar y lo destruye.
+
+## Medición reproducible de FPS
+
+El benchmark desactiva los limitadores de frecuencia y usa `GetTime()` de
+raylib para medir todos los fotogramas renderizados durante 10 segundos. Antes
+descarta 3 segundos de calentamiento. Además, toma una muestra de `GetFPS()` por
+segundo para calcular un promedio y un mínimo independientes.
+
+Debe ejecutarse con `--no-vsync` y sin `--target-fps`:
+
+```
+screensaver 256 --stars 500 --seed 20260831 --width 1280 --height 720 --no-vsync --benchmark
+```
+
+El script de PowerShell compila el programa, prueba por defecto entre 1 y 256
+sistemas, ejecuta cinco corridas por input y guarda las mediciones y su resumen
+en `benchmark-results`:
+
+```powershell
+.\scripts\benchmark.ps1 -SystemCounts 1,8,16,32,64,128,256 -TargetFps 60 -Runs 5
+```
+
+El archivo `runs` contiene los parámetros, segundos, fotogramas, FPS medio,
+peor promedio de un intervalo real de un segundo, promedio y mínimo de
+`GetFPS`, commit y datos principales del equipo. El archivo `summary` contiene
+una fila por cantidad de sistemas con media, mediana, desviación estándar y
+cantidad de corridas estables. Un input se considera estable únicamente si su
+peor intervalo de un segundo alcanza `TargetFps` en todas las corridas. El
+script informa el mayor input medido que cumple ese criterio.
+
+El archivo `hardware` guarda en JSON la CPU, sus núcleos y frecuencia máxima,
+junto con la GPU, controlador, resolución y frecuencia de actualización.
+
+Cada combinación tarda cerca de 13 segundos por corrida, incluidos 3 segundos
+de calentamiento. Para una revisión rápida puede usarse:
+
+```powershell
+.\scripts\benchmark.ps1 -SystemCounts 1,64,128,256 -TargetFps 60 -Runs 2
+```
+
+Para comparar resultados deben mantenerse la misma semilla, resolución,
+cantidad de sistemas y estrellas, plan de energía y pantalla. También conviene
+cerrar aplicaciones pesadas y esperar a que la temperatura del equipo se
+estabilice. La semilla fija reproduce la escena, pero los controladores, la
+temperatura y los procesos del sistema todavía pueden variar el rendimiento.
 
 ## Otros targets del Makefile
 

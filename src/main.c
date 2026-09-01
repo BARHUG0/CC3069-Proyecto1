@@ -22,6 +22,9 @@
 #define DEFAULT_WIDTH  1280
 #define DEFAULT_HEIGHT  720
 #define DEFAULT_STARS   500
+#define BENCHMARK_WARMUP_SECS 3.0
+#define BENCHMARK_DURATION_SECS 10.0
+#define BENCHMARK_SAMPLES 10
 
 /* Presupuesto de estrellas: lo que queda del mundo tras reservar sitio para
  * todos los soles y planetas posibles. */
@@ -41,6 +44,9 @@ typedef struct Config {
     int          vsync;      /* 0 = sin limite, para medir         */
     int          hud;        /* mostrar el panel al arrancar       */
     int          deadstar;   /* modalidad Estrella de la Muerte    */
+    int          deadstarStatic;
+    int          targetFps;
+    int          benchmark;
 } Config;
 
 static void print_usage(const char *exe)
@@ -59,6 +65,9 @@ static void print_usage(const char *exe)
     printf("  --no-vsync         sin sincronia vertical (para medir FPS reales)\n");
     printf("  --hud              arrancar con el panel de datos visible\n");
     printf("  --deadstar         Estrella de la Muerte controlable con WASD y Space\n");
+    printf("  --deadstar-static  mostrar la Estrella de la Muerte sin animarla\n");
+    printf("  --target-fps F     limitar la ejecucion a F FPS con raylib\n");
+    printf("  --benchmark        medir FPS durante 10 s tras 3 s de calentamiento\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
     printf("  -h, --help         esta ayuda\n");
@@ -99,6 +108,9 @@ static int parse_args(int argc, char **argv, Config *cfg)
     cfg->vsync      = 1;
     cfg->hud        = 0;
     cfg->deadstar   = 0;
+    cfg->deadstarStatic = 0;
+    cfg->targetFps  = 0;
+    cfg->benchmark  = 0;
 
     for (int i = 1; i < argc; ++i) {
         const char *a = argv[i];
@@ -133,6 +145,14 @@ static int parse_args(int argc, char **argv, Config *cfg)
             cfg->hud = 1;
         } else if (strcmp(a, "--deadstar") == 0) {
             cfg->deadstar = 1;
+        } else if (strcmp(a, "--deadstar-static") == 0) {
+            cfg->deadstar = 1;
+            cfg->deadstarStatic = 1;
+        } else if (strcmp(a, "--target-fps") == 0) {
+            if (!parse_long(argc, argv, &i, a, &v)) return 1;
+            cfg->targetFps = (int)v;
+        } else if (strcmp(a, "--benchmark") == 0) {
+            cfg->benchmark = 1;
         } else if (strcmp(a, "--screenshot") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Error: --screenshot requiere una ruta.\n");
@@ -180,6 +200,18 @@ static int parse_args(int argc, char **argv, Config *cfg)
     }
     if (cfg->frames < 0) {
         cfg->frames = 0;
+    }
+    if (cfg->targetFps < 0) {
+        fprintf(stderr, "Error: --target-fps debe ser mayor que cero.\n");
+        return 1;
+    }
+    if (cfg->benchmark && cfg->vsync) {
+        fprintf(stderr, "Error: --benchmark requiere --no-vsync.\n");
+        return 1;
+    }
+    if (cfg->benchmark && cfg->targetFps > 0) {
+        fprintf(stderr, "Error: --benchmark no admite --target-fps.\n");
+        return 1;
     }
     return 0;
 }
@@ -290,7 +322,7 @@ int main(int argc, char **argv)
      * framebuffer sea del tamano fisico real mientras las coordenadas siguen
      * siendo logicas, o sea estrellas nitidas sin tocar el codigo de dibujo. */
     unsigned int flags = FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI;
-    if (cfg.vsync) {
+    if (cfg.vsync && cfg.targetFps == 0) {
         flags |= FLAG_VSYNC_HINT;
     }
     SetConfigFlags(flags);
@@ -306,8 +338,8 @@ int main(int argc, char **argv)
     /* Con vsync NO se llama a SetTargetFPS: los dos limitadores juntos se
      * interfieren (el sleep de raylib hace perder el intercambio de buffer y
      * vsync espera el refresco siguiente, cayendo a la mitad del refresco). */
-    if (!cfg.vsync) {
-        SetTargetFPS(0); /* sin limite: solo para medir */
+    if (!cfg.vsync || cfg.targetFps > 0) {
+        SetTargetFPS(cfg.targetFps);
     }
     SetExitKey(KEY_ESCAPE);
 
@@ -343,6 +375,16 @@ int main(int argc, char **argv)
     int  cursorHidden = cfg.fullscreen;
     float simTime   = 0.0f;
     long  frame     = 0;
+    double benchmarkStart = 0.0;
+    double benchmarkNextSample = 0.0;
+    double benchmarkSampleStart = 0.0;
+    double benchmarkElapsed = 0.0;
+    long benchmarkFrames = 0;
+    long benchmarkSampleFrames = 0;
+    int benchmarkCount = 0;
+    int benchmarkMin = 0;
+    double benchmarkSecondMin = 0.0;
+    long benchmarkSum = 0;
 
     /* Medicion del coste de los sistemas de actualizacion, separado del render:
      * es la parte que se paralelizaria, asi que sirve de linea base. */
@@ -371,7 +413,7 @@ int main(int argc, char **argv)
             seed = rng_u32(&rng);
             rng_seed(&rng, seed);
             build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
-            if (cfg.deadstar) {
+            if (cfg.deadstar && !cfg.deadstarStatic) {
                 deathstar_reset(&deathstar);
                 deathstar_center(&deathstar, (float)curW, (float)curH);
             }
@@ -437,6 +479,41 @@ int main(int argc, char **argv)
 
         frame++;
 
+        if (cfg.benchmark) {
+            const double now = GetTime();
+            if (benchmarkStart == 0.0) {
+                if (now - wallStart >= BENCHMARK_WARMUP_SECS) {
+                    benchmarkStart = now;
+                    benchmarkSampleStart = now;
+                    benchmarkNextSample = now + 1.0;
+                }
+            } else {
+                benchmarkFrames++;
+                benchmarkSampleFrames++;
+                if (benchmarkCount < BENCHMARK_SAMPLES &&
+                    now >= benchmarkNextSample) {
+                    const int fps = GetFPS();
+                    const double sampleElapsed = now - benchmarkSampleStart;
+                    const double secondFps = (double)benchmarkSampleFrames / sampleElapsed;
+                    benchmarkSum += fps;
+                    if (benchmarkCount == 0 || fps < benchmarkMin) {
+                        benchmarkMin = fps;
+                    }
+                    if (benchmarkCount == 0 || secondFps < benchmarkSecondMin) {
+                        benchmarkSecondMin = secondFps;
+                    }
+                    benchmarkCount++;
+                    benchmarkSampleStart = now;
+                    benchmarkSampleFrames = 0;
+                    benchmarkNextSample += 1.0;
+                }
+                benchmarkElapsed = now - benchmarkStart;
+                if (benchmarkElapsed >= BENCHMARK_DURATION_SECS) {
+                    break;
+                }
+            }
+        }
+
         if (cfg.screenshot != NULL && frame == captureAt) {
             /* No se usa TakeScreenshot: en 5.5 multiplica el tamano de render
              * por la escala DPI otra vez y devuelve una imagen mas grande que
@@ -473,6 +550,21 @@ int main(int argc, char **argv)
         printf("Semilla           : %u\n", seed);
         if (cfg.deadstar) {
             printf("Deadstar          : %d sistema(s) destruido(s)\n", deathstar.kills);
+        }
+        if (cfg.benchmark && benchmarkElapsed > 0.0 && benchmarkCount > 0) {
+            const double averageFps = (double)benchmarkFrames / benchmarkElapsed;
+            const double getFpsAverage = (double)benchmarkSum / (double)benchmarkCount;
+            printf("Benchmark         : %.3f s, %ld fotogramas, %.2f FPS medio\n",
+                   benchmarkElapsed, benchmarkFrames, averageFps);
+            printf("Intervalos de 1 s : minimo %.2f FPS, %d muestras\n",
+                   benchmarkSecondMin, benchmarkCount);
+            printf("GetFPS            : %.2f FPS medio, minimo %d\n",
+                   getFpsAverage, benchmarkMin);
+            printf("BENCHMARK_CSV,%u,%d,%d,%d,%d,%.6f,%ld,%.3f,%.3f,%.3f,%d,%d\n",
+                   seed, cfg.systems, cfg.stars, cfg.width, cfg.height,
+                   benchmarkElapsed, benchmarkFrames, averageFps,
+                   benchmarkSecondMin, getFpsAverage, benchmarkMin,
+                   benchmarkCount);
         }
     }
 
