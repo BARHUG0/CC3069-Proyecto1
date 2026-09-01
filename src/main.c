@@ -58,11 +58,11 @@ static void print_usage(const char *exe)
     printf("  --no-trails        no dibujar las estelas de sol y planetas\n");
     printf("  --no-vsync         sin sincronia vertical (para medir FPS reales)\n");
     printf("  --hud              arrancar con el panel de datos visible\n");
-    printf("  --deadstar         Estrella de la Muerte: dispara al aparecer el ojo y al pasar el frente\n");
+    printf("  --deadstar         Estrella de la Muerte controlable con WASD y Space\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
     printf("  -h, --help         esta ayuda\n");
-    printf("\nTeclas: H hud | O orbitas | T estelas | SPACE pausa | R nueva escena | F pantalla | ESC salir\n");
+    printf("\nTeclas: WASD mover | SPACE disparar | P pausa | H hud | O orbitas | T estelas | R nueva escena | F pantalla | ESC salir\n");
 }
 
 /* Lee un entero de argv[i+1]. Devuelve 0 si falta o no es valido. */
@@ -132,8 +132,6 @@ static int parse_args(int argc, char **argv, Config *cfg)
         } else if (strcmp(a, "--hud") == 0) {
             cfg->hud = 1;
         } else if (strcmp(a, "--deadstar") == 0) {
-            /* Bandera pura, sin valor: el ritmo de disparo lo fija la
-             * rotacion (dos disparos por vuelta, ver deathstar.h). */
             cfg->deadstar = 1;
         } else if (strcmp(a, "--screenshot") == 0) {
             if (i + 1 >= argc) {
@@ -228,11 +226,8 @@ static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf
              x + 10, line, 12, (Color){ 190, 200, 220, 255 });
     line += step;
     if (ds != NULL) {
-        /* En IDLE el disparo lo dispara la rotacion (el ojo cruzando un
-         * borde), no un cronometro, asi que ahi no hay cuenta atras que
-         * mostrar. */
         if (ds->phase == DS_IDLE) {
-            DrawText(TextFormat("Estrella de la Muerte: girando  Sistemas destruidos: %d", ds->kills),
+            DrawText(TextFormat("Estrella de la Muerte: lista  Sistemas destruidos: %d", ds->kills),
                      x + 10, line, 12, (Color){ 255, 170, 140, 255 });
         } else {
             const char *phaseName = (ds->phase == DS_CHARGE) ? "cargando" : "FUEGO";
@@ -243,7 +238,7 @@ static void draw_hud(const World *w, const SolarSystems *ss, const StarField *sf
         line += step;
     }
     line += 3;
-    DrawText("H hud | O orbitas | T estelas | SPACE pausa | R nueva | F pantalla | ESC salir",
+    DrawText("WASD mover | SPACE disparar | P pausa | H hud | O orbitas | T estelas | R nueva | F pantalla",
              x + 10, line, 10, (Color){ 150, 160, 185, 255 });
 }
 
@@ -336,6 +331,7 @@ int main(int argc, char **argv)
     DeathStar deathstar;
     if (cfg.deadstar) {
         deathstar_load(&deathstar, &rng);
+        deathstar_center(&deathstar, (float)curW, (float)curH);
     }
 
     const Color bg = BLACK; /* fondo completamente negro, sin tinte */
@@ -370,13 +366,14 @@ int main(int argc, char **argv)
         if (IsKeyPressed(KEY_H))     showHud    = !showHud;
         if (IsKeyPressed(KEY_O))     showRings  = !showRings;
         if (IsKeyPressed(KEY_T))     showTrails = !showTrails;
-        if (IsKeyPressed(KEY_SPACE)) paused     = !paused;
+        if (IsKeyPressed(KEY_P))    paused     = !paused;
         if (IsKeyPressed(KEY_R)) {
             seed = rng_u32(&rng);
             rng_seed(&rng, seed);
             build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
             if (cfg.deadstar) {
                 deathstar_reset(&deathstar);
+                deathstar_center(&deathstar, (float)curW, (float)curH);
             }
         }
         if (IsKeyPressed(KEY_F)) {
@@ -384,6 +381,7 @@ int main(int argc, char **argv)
             cursorHidden = !cursorHidden;
             if (cursorHidden) HideCursor(); else ShowCursor();
         }
+
 
         /* Cualquier cambio de resolucion (F o arrastrar el borde) invalida la
          * rejilla de sistemas, asi que se recoloca con la misma semilla. */
@@ -396,6 +394,7 @@ int main(int argc, char **argv)
             build_scene(world, ss, &sf, tb, &rng, &cfg, curW, curH);
             if (cfg.deadstar) {
                 deathstar_reset(&deathstar);
+                deathstar_center(&deathstar, (float)curW, (float)curH);
             }
         }
 
@@ -406,6 +405,12 @@ int main(int argc, char **argv)
             sys_spawn_stars(world, &sf, &rng, dt);
             sys_drift(world, ss, dt);
             if (cfg.deadstar) {
+                const float moveX = (float)IsKeyDown(KEY_D) - (float)IsKeyDown(KEY_A);
+                const float moveY = (float)IsKeyDown(KEY_S) - (float)IsKeyDown(KEY_W);
+                deathstar_move(&deathstar, moveX, moveY, (float)curW, (float)curH, dt);
+                if (IsKeyPressed(KEY_SPACE)) {
+                    deathstar_fire(&deathstar, ss, &rng);
+                }
                 deathstar_update(&deathstar, world, ss, tb, &rng, cfg.systems,
                                  (float)curW, (float)curH, dt);
             }

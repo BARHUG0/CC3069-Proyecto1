@@ -72,12 +72,6 @@
 #define DS_DISH_CULL_Z 0.38f
 #define DS_DISH_FADE_Z 0.62f
 
-/* El objetivo del disparo ya no es uniforme en toda la pantalla: eso lo
- * dejaba caer a veces muy cerca del centro (la propia nave), y un rayo tan
- * corto se ve mal / no da sensacion de alcance. Se fuerza una distancia
- * minima al centro de pantalla (fraccion del lado corto), con resampleo. */
-#define DS_AIM_MIN_DIST_FRAC 0.32f
-
 static float ds_clampf(float v, float lo, float hi)
 {
     if (v < lo) return lo;
@@ -110,37 +104,6 @@ static float ds_dish_fade(const DeathStar *ds)
     const float zRatio = ds->dishPos.z / ds->worldR;
     return ds_clampf(
         (zRatio - DS_DISH_CULL_Z) / (DS_DISH_FADE_Z - DS_DISH_CULL_Z), 0.0f, 1.0f);
-}
-
-/* Punto de impacto al azar, pero lejos del centro de pantalla (donde esta la
- * estacion) y del lado de pantalla donde esta el ojo ahora mismo (rightHalf
- * — ver el trigger en deathstar_update, que decide el lado por construccion
- * en vez de proyectar la posicion real del ojo): resampleo simple hasta que
- * cae fuera de un radio minimo del centro, con tope de intentos. El lado es
- * una restriccion dura del rango de muestreo; la distancia minima es
- * best-effort (resampleo, no garantizado) — a proposito, son dos cosas
- * distintas. */
-static void ds_pick_aim(Rng *rng, float screenW, float screenH, int rightHalf,
-                        float *outX, float *outY)
-{
-    const float cx = screenW * 0.5f, cy = screenH * 0.5f;
-    const float minDist = fminf(screenW, screenH) * DS_AIM_MIN_DIST_FRAC;
-    const float loX = rightHalf ? cx : 0.0f;
-    const float hiX = rightHalf ? screenW : cx;
-    /* Fallback si se agotan los intentos: al 25%/75% del ancho, nunca en el
-     * centro exacto (que si violaria el lado pedido). */
-    float x = screenW * (rightHalf ? 0.75f : 0.25f);
-    float y = cy;
-    for (int tries = 0; tries < 20; ++tries) {
-        x = rng_range(rng, loX, hiX);
-        y = rng_range(rng, 0.0f, screenH);
-        const float dx = x - cx, dy = y - cy;
-        if (dx * dx + dy * dy >= minDist * minDist) {
-            break;
-        }
-    }
-    *outX = x;
-    *outY = y;
 }
 
 /* --- texturas procedurales -------------------------------------------------
@@ -335,6 +298,44 @@ void deathstar_reset(DeathStar *ds)
     ds->respawnTimer = DS_RESPAWN_SECS;
     ds->kills        = 0;
     ds->expCount     = 0;
+    ds->victim       = -1;
+}
+
+void deathstar_center(DeathStar *ds, float screenW, float screenH)
+{
+    ds->posX = screenW * 0.5f;
+    ds->posY = screenH * 0.5f;
+}
+
+void deathstar_move(DeathStar *ds, float moveX, float moveY, float screenW, float screenH,
+                    float dt)
+{
+    const float length = sqrtf(moveX * moveX + moveY * moveY);
+    if (length > 0.0f) {
+        moveX /= length;
+        moveY /= length;
+        ds->posX += moveX * DS_MOVE_PX_S * dt;
+        ds->posY += moveY * DS_MOVE_PX_S * dt;
+    }
+
+    const float visibleH = 2.0f * ds->cam.position.z * tanf(ds->cam.fovy * 0.5f * DEG2RAD);
+    const float radiusPx = ds->worldR * screenH / visibleH;
+    ds->posX = ds_clampf(ds->posX, radiusPx, screenW - radiusPx);
+    ds->posY = ds_clampf(ds->posY, radiusPx, screenH - radiusPx);
+}
+
+int deathstar_fire(DeathStar *ds, const SolarSystems *ss, Rng *rng)
+{
+    if (ds->phase != DS_IDLE || ss->count <= 0) {
+        return 0;
+    }
+
+    ds->victim = (int)rng_below(rng, (uint32_t)ss->count);
+    ds->aimX = ss->cx[ds->victim];
+    ds->aimY = ss->cy[ds->victim];
+    ds->phase = DS_CHARGE;
+    ds->timer = DS_CHARGE_SECS;
+    return 1;
 }
 
 /* --- explosiones ----------------------------------------------------------
@@ -389,39 +390,15 @@ static void ds_update_explosions(DeathStar *ds, float dt)
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt)
 {
-    /* Frenar apenas el ojo se vuelve visible, no al llegar al frente exacto
-     * (v6): flanco de subida de ds_dish_fade, medido ANTES de mover el ojo
-     * (dishPos todavia tiene la posicion del frame anterior) y DESPUES (ya
-     * con el spin nuevo aplicado) — asi el cruce nunca se pierde aunque un
-     * frame lento salte de golpe. La velocidad de giro no es constante
-     * (ds_spin_rate_deg): se frena desde ds->frontEaseDeg, el mismo umbral
-     * de aparicion.
-     *
-     * Dos disparos por vuelta (v7, pedido explicito): uno apenas aparece
-     * (justAppeared, arriba) y otro al cruzar el frente exacto (atMiddle,
-     * capturado ANTES de envolver el spin — mismo patron que v4/v5 usaban
-     * para "atFront"). El lado de pantalla al que apunta cada uno sale de
-     * CUAL disparo es, no de proyectar ds->dishPos: el disparo de aparicion
-     * ocurre siempre en spin=360-frontEaseDeg (rango (180,360), sin(spin)<0
-     * -> el ojo esta del lado -X del mundo -> pantalla-izquierda, porque
-     * esta camara mira desde +Z con up=+Y, asi que +X mundo es
-     * pantalla-derecha) y el de cruce de frente ocurre siempre justo
-     * despues del envolvido, con spin pequeno y positivo (sin(spin)>=0 ->
-     * pantalla-derecha). No se usa GetWorldToScreen para esto a proposito:
-     * ademas de ser redundante (en el cruce el ojo esta en x~0, ambiguo),
-     * GetWorldToScreen llama a GetScreenWidth() internamente, que devuelve
-     * 0 sin InitWindow — romperia el arnes headless (ver STATUS.md) que
-     * corre deathstar_update sin GPU/ventana. */
-    const float fadeBefore = ds_dish_fade(ds);
+    (void)screenW;
+    (void)screenH;
+
     float rawSpin = ds->spin + ds_spin_rate_deg(ds->spin, ds->frontEaseDeg) * dt;
-    const int atMiddle = (rawSpin >= 360.0f);
-    if (atMiddle) {
+    if (rawSpin >= 360.0f) {
         rawSpin -= 360.0f;
     }
     ds->spin = rawSpin;
     ds_place_dish(ds); /* el ojo esta fijo al cuerpo: se reubica cada frame */
-    const float fadeAfter = ds_dish_fade(ds);
-    const int justAppeared = (fadeBefore <= 0.0f && fadeAfter > 0.0f);
 
     /* El radio de impacto se ata a la escala real de los sistemas (cellR ya
      * refleja el tamano de celda para el N actual), no a un pixel fijo que se
@@ -430,22 +407,14 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
         ds->blastR = ss->cellR * 1.3f;
     }
 
-    if ((justAppeared || atMiddle) && ds->phase == DS_IDLE) {
-        /* Ojo recien aparecido (izquierda) o cruzando el frente (derecha):
-         * objetivo al azar, lejos del centro y del lado que toque (ver
-         * ds_pick_aim arriba). Sin overlap posible entre los dos disparos:
-         * CHARGE+FIRE dura 1.25s y el transito de aparicion a frente son
-         * ~3.8s (integrando ds_spin_rate_deg), asi que el guard de
-         * phase==DS_IDLE de aqui abajo nunca hace falta reforzarlo — en el
-         * peor caso un frame raro se saltaria un disparo, no corrompe nada. */
-        ds_pick_aim(rng, screenW, screenH, atMiddle, &ds->aimX, &ds->aimY);
-        ds->phase = DS_CHARGE;
-        ds->timer = DS_CHARGE_SECS;
+    if (ds->phase == DS_CHARGE && ds->victim >= 0 && ds->victim < ss->count) {
+        ds->aimX = ss->cx[ds->victim];
+        ds->aimY = ss->cy[ds->victim];
     }
 
     switch (ds->phase) {
     case DS_IDLE:
-        break; /* espera a que el ojo vuelva a aparecer, arriba */
+        break;
 
     case DS_CHARGE:
         ds->timer -= dt;
@@ -453,24 +422,14 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
             ds->phase = DS_FIRE;
             ds->timer = DS_FIRE_SECS;
 
-            /* Resolver impacto: el primer sistema dentro del radio de
-             * explosion (normalmente 0, a veces 1; el disparo apunta a un
-             * punto al azar, no a un sistema, asi que puede fallar). */
-            int victim = -1;
-            for (int s = 0; s < ss->count; ++s) {
-                const float ddx = ss->cx[s] - ds->aimX;
-                const float ddy = ss->cy[s] - ds->aimY;
-                if (ddx * ddx + ddy * ddy < ds->blastR * ds->blastR) {
-                    victim = s;
-                    break;
-                }
-            }
-            if (victim >= 0) {
+            const int victim = ds->victim;
+            if (victim >= 0 && victim < ss->count) {
                 ds_spawn_explosion(ds, rng, ss->cx[victim], ss->cy[victim], ss->layer[victim]);
                 trails_drop_system(tb, ss, victim);
                 solar_system_remove(w, ss, victim);
                 ds->kills++;
             }
+            ds->victim = -1;
         }
         break;
 
@@ -507,7 +466,18 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
  * se mueve segun el objetivo (vive a un lado fijo por disparo), asi que el
  * rayo simplemente sale de donde el ojo este hacia el pixel real: no hay
  * forma de que quede desalineado. */
-static void ds_render_beam(const DeathStar *ds)
+static Vector3 ds_world_offset(const DeathStar *ds, int screenW, int screenH)
+{
+    const float visibleH = 2.0f * ds->cam.position.z * tanf(ds->cam.fovy * 0.5f * DEG2RAD);
+    const float worldPerPixel = visibleH / (float)screenH;
+    return (Vector3){
+        (ds->posX - (float)screenW * 0.5f) * worldPerPixel,
+        ((float)screenH * 0.5f - ds->posY) * worldPerPixel,
+        0.0f
+    };
+}
+
+static void ds_render_beam(const DeathStar *ds, Vector3 offset)
 {
     if (ds->phase != DS_CHARGE && ds->phase != DS_FIRE) {
         return;
@@ -521,7 +491,8 @@ static void ds_render_beam(const DeathStar *ds)
     tangent = Vector3Normalize(tangent);
     const Vector3 bitangent = Vector3CrossProduct(nrm, tangent);
 
-    const Vector2 dishScreen = GetWorldToScreen(ds->dishPos, ds->cam);
+    const Vector3 dishWorld = Vector3Add(ds->dishPos, offset);
+    const Vector2 dishScreen = GetWorldToScreen(dishWorld, ds->cam);
 
     const float chargeT = (ds->phase == DS_FIRE) ? 1.0f
         : ds_clampf(1.0f - ds->timer / DS_CHARGE_SECS, 0.0f, 1.0f);
@@ -529,9 +500,9 @@ static void ds_render_beam(const DeathStar *ds)
     Vector2 rim[8];
     for (int i = 0; i < 8; ++i) {
         const float theta = (float)i * (DS_TWO_PI / 8.0f);
-        const Vector3 p = Vector3Add(ds->dishPos,
+        const Vector3 p = Vector3Add(dishWorld,
             Vector3Add(Vector3Scale(tangent, ds->dishR * cosf(theta)),
-                      Vector3Scale(bitangent, ds->dishR * sinf(theta))));
+                       Vector3Scale(bitangent, ds->dishR * sinf(theta))));
         rim[i] = GetWorldToScreen(p, ds->cam);
     }
 
@@ -681,12 +652,11 @@ static void ds_render_explosions(const DeathStar *ds)
 
 void deathstar_render(const DeathStar *ds, int screenW, int screenH)
 {
-    (void)screenW;
-    (void)screenH;
+    const Vector3 offset = ds_world_offset(ds, screenW, screenH);
 
     BeginMode3D(ds->cam);
 
-    DrawModelEx(ds->body, (Vector3){ 0.0f, 0.0f, 0.0f }, (Vector3){ 0.0f, 1.0f, 0.0f },
+    DrawModelEx(ds->body, offset, (Vector3){ 0.0f, 1.0f, 0.0f },
                ds->spin, (Vector3){ 1.0f, 1.0f, 1.0f }, WHITE);
 
     /* DrawModelEx, no DrawMesh(mesh, material, MatrixMultiply(rot, trans)):
@@ -710,12 +680,13 @@ void deathstar_render(const DeathStar *ds, int screenW, int screenH)
          * con el ojo real) — la esfera recorta su borde con el z-test real,
          * asi que se ve como un cerco oscuro rodeando el ojo en vez del ojo
          * flotando pegado encima de la superficie. */
-        const Vector3 bezelPos = Vector3Scale(nrm,
-            ds->worldR * (1.0f - DS_DISH_SINK_FRAC - DS_DISH_BEZEL_EXTRA_SINK));
+        const Vector3 bezelPos = Vector3Add(offset, Vector3Scale(nrm,
+            ds->worldR * (1.0f - DS_DISH_SINK_FRAC - DS_DISH_BEZEL_EXTRA_SINK)));
         DrawModelEx(ds->dish, bezelPos, ds->dishRotAxis, ds->dishRotAngle,
                    (Vector3){ 1.6f, 1.0f, 1.6f },
                    (Color){ 10, 12, 10, ds_alpha8(0.65f * dishFade) });
-        DrawModelEx(ds->dish, ds->dishPos, ds->dishRotAxis, ds->dishRotAngle,
+        DrawModelEx(ds->dish, Vector3Add(offset, ds->dishPos),
+                   ds->dishRotAxis, ds->dishRotAngle,
                    (Vector3){ 1.0f, 1.0f, 1.0f },
                    (Color){ 255, 255, 255, ds_alpha8(dishFade) });
         EndBlendMode();
@@ -723,6 +694,6 @@ void deathstar_render(const DeathStar *ds, int screenW, int screenH)
 
     EndMode3D();
 
-    ds_render_beam(ds);
+    ds_render_beam(ds, offset);
     ds_render_explosions(ds);
 }

@@ -19,7 +19,7 @@ ifeq ($(OS),Windows_NT)
   CFLAGS  += -Ivendor/raylib/include
   LDFLAGS += -Lvendor/raylib/lib
   LDLIBS  := -lraylib -lopengl32 -lgdi32 -lwinmm
-  CLEAN    = cmd /c del /q /f $(subst /,\,$(OBJ) $(BIN)) 2>NUL
+  CLEAN    = cmd /c del /q /f $(subst /,\,$(OBJ) $(BIN) deathstar_test.exe) 2>NUL
 else
   UNAME_S := $(shell uname -s)
   ifeq ($(UNAME_S),Darwin)
@@ -33,10 +33,10 @@ else
     BIN    := screensaver
     LDLIBS := -lraylib -lm -lpthread -ldl -lrt -lX11
   endif
-  CLEAN   = rm -f $(OBJ) $(BIN)
+  CLEAN   = rm -f $(OBJ) $(BIN) deathstar_test
 endif
 
-.PHONY: all run clean
+.PHONY: all run test clean
 
 all: $(BIN)
 
@@ -50,6 +50,10 @@ src/%.o: src/%.c src/ecs.h src/rng.h src/spawn.h src/systems.h src/deathstar.h
 
 run: $(BIN)
 	./$(BIN) 6
+
+test: tests/deathstar_test.c src/ecs.c src/spawn.c src/systems.c src/deathstar.c
+	$(CC) $(CFLAGS) -Isrc $^ -o deathstar_test $(LDFLAGS) $(LDLIBS)
+	./deathstar_test
 
 clean:
 	-$(CLEAN)

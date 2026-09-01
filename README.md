@@ -52,13 +52,17 @@ screensaver N [opciones]
 | `--seed S` | semilla del generador (default: reloj) |
 | `--fullscreen` | pantalla completa sin borde |
 | `--no-rings` | no dibujar las órbitas |
+| `--no-trails` | no dibujar las estelas |
 | `--no-vsync` | sin vsync (para medir FPS reales) |
 | `--hud` | arrancar con el panel de datos visible |
+| `--deadstar` | activar la Estrella de la Muerte controlable |
 | `--frames K` | salir tras K fotogramas (pruebas) |
 | `--screenshot RUTA` | guardar un PNG y seguir (pruebas) |
 | `-h`, `--help` | ayuda |
 
-Controles en ejecución: `H` panel de datos, `O` órbitas, `Espacio` pausa, `R` reset, `F` fullscreen.
+Controles en ejecución: `H` panel de datos, `O` órbitas, `T` estelas, `P` pausa, `R` reset y `F` fullscreen.
+
+Con `--deadstar`: `W`, `A`, `S` y `D` mueven la Estrella de la Muerte. `Espacio` dispara a un sistema solar elegido al azar y lo destruye.
 
 ## Otros targets del Makefile
 

@@ -2,3 +2,5 @@
 *.o
 screensaver
 .DS_Store
+
+TEMP/

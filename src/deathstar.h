@@ -1,6 +1,6 @@
 /* deathstar.h - Modalidad opcional --deadstar: una Estrella de la Muerte 3D
- * en el centro de la pantalla que dispara el superlaser cada cierto tiempo a
- * un punto al azar; si le pega a un sistema solar, lo destruye.
+ * controlada con WASD que dispara el superlaser con Space a un sistema solar
+ * elegido al azar y lo destruye.
  *
  * Modelo real (GenMeshSphere + GenMeshCylinder, Camera3D), no primitivas 2D:
  * el cuerpo gira sobre su eje, y el "ojo" (plato del superlaser) es un
@@ -13,19 +13,9 @@
  * velocidad de giro no es constante: se frena en cuanto el ojo empieza a
  * aparecer (ds_spin_rate_deg, umbral ds->frontEaseDeg — el mismo angulo en
  * que arranca el desvanecido de visibilidad, no uno ajustado aparte).
- * Dispara DOS veces por vuelta (v7): apenas el ojo se vuelve visible (flanco
- * de subida de ds_dish_fade — no espera a llegar al frente exacto) y otra
- * vez al cruzar el frente exacto (el cruce de spin 360°→0°). Cada disparo
- * apunta a un punto al azar, lejos del centro de pantalla
- * (DS_AIM_MIN_DIST_FRAC — evita tiros cortos pegados a la estación), y
- * restringido al lado de pantalla donde esta el ojo en ese instante: el
- * disparo de aparicion siempre cae del lado izquierdo (el ojo aparece ahi
- * por construccion) y el de cruce de frente siempre del lado derecho (ver
- * el comentario en deathstar_update). La rotacion nunca se detiene del
- * todo — solo se frena cerca del frente (DS_SPIN_RATE_MIN es un piso, no
- * cero) — asi que "dos disparos por vuelta" nunca compite con "sigue
- * girando". No hay cronometro de disparo ni valor SECS en la bandera: el
- * ritmo lo fija la velocidad de rotación (DS_SPIN_RATE_DEG). El rayo sale
+ * La rotacion nunca se detiene del todo y solo se frena cerca del frente.
+ * El disparo se inicia manualmente y el objetivo permanece ligado al sistema
+ * elegido mientras carga. El rayo sale
  * de donde esté el ojo hacia el punto de impacto real (proyectado con
  * GetWorldToScreen, pero solo en el render — deathstar_update nunca
  * proyecta nada, para poder correr sin GPU/ventana en el arnes de pruebas).
@@ -57,6 +47,7 @@
 
 #define DS_MAX_EXPLOSIONS   8
 #define DS_EXP_PARTICLES   24
+#define DS_MOVE_PX_S       320.0f
 
 enum DeathStarPhase {
     DS_IDLE = 0,   /* esperando el proximo disparo               */
@@ -92,6 +83,8 @@ typedef struct DeathStar {
     float aimX, aimY; /* objetivo actual, en pixeles de pantalla    */
     float blastR;     /* radio de impacto, en pixeles               */
     int   kills;
+    int   victim;     /* sistema elegido para destruir, -1 = ninguno */
+    float posX, posY; /* centro de la estacion en pantalla             */
 
     /* Respawn incremental: si count < targetN, cada `interval` nace un
      * sistema nuevo, para que la poblacion nunca llegue a cero. */
@@ -122,12 +115,14 @@ void deathstar_unload(DeathStar *ds); /* antes de CloseWindow */
  * modelos. Se llama junto con build_scene (tecla R, cambio de resolucion). */
 void deathstar_reset(DeathStar *ds);
 
-/* Avanza rotacion (el ojo gira pegado al cuerpo), dispara apenas el ojo se
- * vuelve visible y otra vez al cruzar el frente exacto (con resolucion de
- * impacto: destruye el sistema alcanzado), explosiones y respawn incremental
- * hasta targetN. */
+/* Avanza rotacion, resuelve el disparo activo, explosiones y respawn. */
 void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb,
                       Rng *rng, int targetN, float screenW, float screenH, float dt);
+
+void deathstar_center(DeathStar *ds, float screenW, float screenH);
+void deathstar_move(DeathStar *ds, float moveX, float moveY, float screenW, float screenH,
+                    float dt);
+int deathstar_fire(DeathStar *ds, const SolarSystems *ss, Rng *rng);
 
 /* Dibuja la estacion (3D), el rayo y las explosiones (2D, proyectados con
  * GetWorldToScreen). Debe correr entre BeginDrawing/EndDrawing, despues de
