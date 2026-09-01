@@ -330,7 +330,27 @@ int deathstar_fire(DeathStar *ds, const SolarSystems *ss, Rng *rng)
         return 0;
     }
 
-    ds->victim = (int)rng_below(rng, (uint32_t)ss->count);
+    const float screenW = ss->cellW * (float)ss->gridCols;
+    const float screenH = ss->cellH * (float)ss->gridRows;
+    int visibleCount = 0;
+    for (int s = 0; s < ss->count; ++s) {
+        if (ss->cx[s] >= 0.0f && ss->cx[s] < screenW &&
+            ss->cy[s] >= 0.0f && ss->cy[s] < screenH) {
+            visibleCount++;
+        }
+    }
+    if (visibleCount == 0) {
+        return 0;
+    }
+
+    int visibleIndex = (int)rng_below(rng, (uint32_t)visibleCount);
+    for (ds->victim = 0; ds->victim < ss->count; ++ds->victim) {
+        if (ss->cx[ds->victim] >= 0.0f && ss->cx[ds->victim] < screenW &&
+            ss->cy[ds->victim] >= 0.0f && ss->cy[ds->victim] < screenH &&
+            visibleIndex-- == 0) {
+            break;
+        }
+    }
     ds->aimX = ss->cx[ds->victim];
     ds->aimY = ss->cy[ds->victim];
     ds->phase = DS_CHARGE;
