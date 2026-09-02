@@ -129,8 +129,9 @@ static void drift_system(World *w, SolarSystems *ss, int s, float dt)
     if (a < 0.0f)       a += 6.2831853f;
     ss->orbAng[s] = a;
 
-    const float cx = ss->homeX[s] + ss->orbRad[s] * cosf(a);
-    const float cy = ss->homeY[s] + ss->orbRad[s] * sinf(a);
+    const int   anchorIdx = ss->anchor[s];
+    const float cx = ss->anchorX[anchorIdx] + ss->orbRad[s] * cosf(a);
+    const float cy = ss->anchorY[anchorIdx] + ss->orbRad[s] * sinf(a);
 
     ss->cx[s] = cx;
     ss->cy[s] = cy;

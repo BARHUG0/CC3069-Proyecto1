@@ -25,30 +25,20 @@ static void assert_starfield_full(const World *world, const StarField *starfield
     assert(stars == starfield->targetStars);
 }
 
-static void assert_systems_visible(const World *world, const SolarSystems *systems,
-                                   float screenW, float screenH)
+/* Bajo el modelo de anclas (ver spawn.h) un sistema puede barrer arcos amplios
+ * y salirse del borde por momentos a proposito, asi que no se comprueban
+ * limites de pantalla: solo que cada sistema tenga una orbita real —
+ * radio positivo alrededor de un ancla valida y velocidad angular en el rango
+ * que fija spawn_system_into_slot. */
+static void assert_systems_orbit(const World *world, const SolarSystems *systems)
 {
+    (void)world;
     for (int s = 0; s < systems->count; ++s) {
-        float reach = 0.0f;
-        const int first = systems->ringFirst[s];
-        const int last = first + systems->planetCount[s];
-
-        for (int i = first; i < last; ++i) {
-            const Entity e = systems->ringEntity[i];
-            const float x = systems->ringRx[i] + world->rad[e];
-            const float y = systems->ringRy[i] + world->rad[e];
-            if (x > reach) reach = x;
-            if (y > reach) reach = y;
-        }
-
-        assert(systems->cx[s] - reach >= 0.0f);
-        assert(systems->cx[s] + reach <= screenW);
-        assert(systems->cy[s] - reach >= 0.0f);
-        assert(systems->cy[s] + reach <= screenH);
-        assert(systems->homeX[s] - systems->orbRad[s] - reach >= 0.0f);
-        assert(systems->homeX[s] + systems->orbRad[s] + reach <= screenW);
-        assert(systems->homeY[s] - systems->orbRad[s] - reach >= 0.0f);
-        assert(systems->homeY[s] + systems->orbRad[s] + reach <= screenH);
+        assert(systems->anchor[s] == 0 || systems->anchor[s] == 1);
+        assert(systems->orbRad[s] >= 0.0f);
+        const float spd = systems->orbSpd[s] < 0.0f ? -systems->orbSpd[s]
+                                                    : systems->orbSpd[s];
+        assert(spd >= 0.03f && spd <= 0.5f);
     }
 }
 
@@ -66,7 +56,7 @@ static void assert_layout_bounds(World *world, SolarSystems *systems)
             memset(systems, 0, sizeof(*systems));
             spawn_solar_systems(world, systems, &rng, counts[count],
                                 widths[size], heights[size]);
-            assert_systems_visible(world, systems, widths[size], heights[size]);
+            assert_systems_orbit(world, systems);
         }
     }
 }
@@ -106,8 +96,8 @@ int main(void)
 
     assert_starfield_full(sequentialWorld, &sequentialStars);
     assert_starfield_full(parallelWorld, &parallelStars);
-    assert_systems_visible(sequentialWorld, sequentialSystems, 1280.0f, 720.0f);
-    assert_systems_visible(parallelWorld, parallelSystems, 1280.0f, 720.0f);
+    assert_systems_orbit(sequentialWorld, sequentialSystems);
+    assert_systems_orbit(parallelWorld, parallelSystems);
 
     const int sequentialSpawned =
         sys_spawn_stars(sequentialWorld, &sequentialStars, &sequentialRng, 1.0f);
@@ -124,8 +114,8 @@ int main(void)
     sys_drift(parallelWorld, parallelSystems, 0.016f);
     assert_worlds_equal(sequentialWorld, parallelWorld);
     assert(memcmp(sequentialSystems, parallelSystems, sizeof(*sequentialSystems)) == 0);
-    assert_systems_visible(sequentialWorld, sequentialSystems, 1280.0f, 720.0f);
-    assert_systems_visible(parallelWorld, parallelSystems, 1280.0f, 720.0f);
+    assert_systems_orbit(sequentialWorld, sequentialSystems);
+    assert_systems_orbit(parallelWorld, parallelSystems);
 
     trails_init(sequentialTrails, sequentialWorld, sequentialSystems);
     trails_init(parallelTrails, parallelWorld, parallelSystems);

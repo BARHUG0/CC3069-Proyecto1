@@ -163,7 +163,13 @@ static Entity spawn_planet(World *w, Rng *rng, float cx, float cy,
     return e;
 }
 
-/* `layer` (ver SYS_LAYER_COUNT, spawn.h) hornea la profundidad en la
+/* Cuerpo compartido entre spawn_solar_systems y spawn_one_system: crea sol +
+ * planetas del sistema s en (cx,cy), orbitando la ancla anchorIdx, con la
+ * geometria de rejilla ya guardada en ss (cellR/sunRad/planetRef). Asume
+ * s < MAX_SYSTEMS; el llamador es quien decide si s es un slot nuevo o uno
+ * reciclado y ajusta ss->count.
+ *
+ * `layer` (ver SYS_LAYER_COUNT, spawn.h) hornea la profundidad en la
  * GEOMETRIA una sola vez aca (radio del sol, radios de orbita, velocidad de
  * deriva) — el brillo/alpha por capa vive en el render (systems.c), no aca,
  * para no pelear con sys_twinkle que reescribe w->alpha[e] cada frame para
@@ -173,21 +179,36 @@ static Entity spawn_planet(World *w, Rng *rng, float cx, float cy,
  * deathstar_update (ds->blastR); escalarlos in-place corromperia a todos
  * los sistemas siguientes. */
 static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
-                                   int s, float homeX, float homeY, int layer)
+                                   int s, float cx, float cy, int anchorIdx,
+                                   int layer)
 {
+    ss->anchor[s] = anchorIdx;
     ss->layer[s]  = layer;
     const float sc = solar_layer_scale(layer);
 
-    ss->homeX[s]  = homeX;
-    ss->homeY[s]  = homeY;
-    ss->orbRad[s] = rng_range(rng, ss->driftMax * 0.35f, ss->driftMax);
-    ss->orbAng[s] = rng_range(rng, 0.0f, 6.2831853f);
-    ss->orbSpd[s] = rng_sign(rng) * rng_range(rng, 0.08f, 0.22f) * sc;
+    /* Radio y angulo de orbita: geometria real hacia el ancla sorteada, no un
+     * sorteo acotado a la mitad del ancla. Un sistema nacido en una mitad
+     * orbitando el ancla de la otra barre ambas. */
+    const float dx = cx - ss->anchorX[anchorIdx];
+    const float dy = cy - ss->anchorY[anchorIdx];
+    const float radius = sqrtf(dx * dx + dy * dy);
+    const float angle  = atan2f(dy, dx);
 
-    const float cx = homeX + ss->orbRad[s] * cosf(ss->orbAng[s]);
-    const float cy = homeY + ss->orbRad[s] * sinf(ss->orbAng[s]);
-    ss->cx[s] = cx;
-    ss->cy[s] = cy;
+    /* Velocidad angular derivada de una velocidad lineal fija (~25-70 px/s),
+     * no un rad/s fijo: con radios que varian mucho (~0 a ~1000px), un rad/s
+     * fijo haria que los sistemas de radio grande volaran por la pantalla.
+     * Escalada por capa (sc): los sistemas de atras tambien derivan mas
+     * lento, otra pista barata de distancia. */
+    const float v = rng_range(rng, 25.0f, 70.0f) * sc;
+    float ospd = (radius > 1.0f) ? v / radius : 0.3f;
+    ospd = rng_sign(rng) * clampf(ospd, 0.03f, 0.5f);
+
+    ss->orbRad[s] = radius;
+    ss->orbAng[s] = angle;
+    ss->orbSpd[s] = ospd;
+
+    ss->cx[s]        = cx;
+    ss->cy[s]        = cy;
     ss->ringFirst[s] = ss->ringTotal;
 
     /* Copias locales escaladas por capa — ver el comentario de la funcion. */
@@ -226,8 +247,8 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
 
         const float pr = prRef * rng_range(rng, 0.65f, 1.35f);
 
-        const float gap = fminf(3.0f * sc, cellRs * 0.10f);
-        const float minR = sunRadS + pr + gap;
+        /* Que el planeta no quede dentro del sol. */
+        const float minR = sunRadS + pr + 3.0f * sc;
         if (rx < minR) rx = minR;
         if (ry < minR) ry = minR;
 
@@ -277,13 +298,48 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
     ss->cellW    = screenW / (float)cols;
     ss->cellH    = screenH / (float)rows;
 
-    const float cellMin = (ss->cellW < ss->cellH) ? ss->cellW : ss->cellH;
-    ss->cellR = 0.40f * cellMin;
+    /* 0.42 deja un margen entre celdas vecinas para que los anillos exteriores
+     * de dos sistemas no se toquen. */
+    ss->cellR = 0.42f * ((ss->cellW < ss->cellH) ? ss->cellW : ss->cellH);
 
-    ss->sunRad    = clampf(ss->cellR * 0.16f, 0.8f, 10.0f);
-    ss->planetRef = clampf(ss->cellR * 0.055f, 0.45f, 5.0f);
-    ss->driftMax = 0.04f * cellMin;
+    ss->sunRad    = clampf(ss->cellR * 0.16f, 2.5f, 10.0f);
+    ss->planetRef = clampf(ss->cellR * 0.055f, 1.2f, 5.0f);
 
+    /* Dos anclas fijas, una por mitad de pantalla. */
+    ss->anchorX[0] = screenW * 0.25f;
+    ss->anchorY[0] = screenH * 0.5f;
+    ss->anchorX[1] = screenW * 0.75f;
+    ss->anchorY[1] = screenH * 0.5f;
+
+    /* Jitter chico para que la rejilla de posiciones no se note pero los
+     * sistemas no se toquen al nacer. */
+    ss->jitter = 0.12f * ((ss->cellW < ss->cellH) ? ss->cellW : ss->cellH);
+
+    /* Reparto barajado, no un volado independiente por sistema: con N chico
+     * (el caso tipico) unos cuantos volados de moneda pueden caer 8 a 2 por
+     * puro azar, y eso se lee en pantalla como "sigue pegado a un lado"
+     * aunque sea random de verdad. Se arma n/2 y n/2 (el impar va al lado 1)
+     * y se baraja con Fisher-Yates: el orden es al azar, el conteo por lado
+     * siempre queda parejo. Barajar el ancla (y no la posicion, que sigue
+     * fija por col/row) es lo que garantiza que a que mitad orbita un
+     * sistema no tenga relacion con en que mitad nacio. */
+    int assign[MAX_SYSTEMS];
+    for (int s = 0; s < n; ++s) {
+        assign[s] = (s < n / 2) ? 0 : 1;
+    }
+    for (int s = n - 1; s > 0; --s) {
+        const int j = (int)rng_below(rng, (uint32_t)(s + 1));
+        const int tmp = assign[s];
+        assign[s] = assign[j];
+        assign[j] = tmp;
+    }
+
+    /* Mismo reparto barajado para la capa de profundidad (ver
+     * SYS_LAYER_COUNT, spawn.h): un rng_below(rng, SYS_LAYER_COUNT)
+     * independiente por sistema es exactamente el volado independiente que
+     * se rechazo arriba para las anclas — con N chico puede amontonar casi
+     * todos los sistemas en una sola capa y la sensacion de profundidad no
+     * se nota. s % SYS_LAYER_COUNT reparte parejo, el shuffle desordena. */
     int lay[MAX_SYSTEMS];
     for (int s = 0; s < n; ++s) {
         lay[s] = s % SYS_LAYER_COUNT;
@@ -296,12 +352,14 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
     }
 
     for (int s = 0; s < n; ++s) {
+        /* Posicion propia del sistema: rejilla + jitter, sin mirar el ancla
+         * que le toco. Puede caer en cualquier mitad de pantalla. */
         const int col = s % cols;
         const int row = s / cols;
-        const float homeX = (col + 0.5f) * ss->cellW;
-        const float homeY = (row + 0.5f) * ss->cellH;
+        const float cx = (col + 0.5f) * ss->cellW + rng_range(rng, -ss->jitter, ss->jitter);
+        const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
-        spawn_system_into_slot(w, ss, rng, s, homeX, homeY, lay[s]);
+        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s], lay[s]);
     }
 }
 
@@ -311,6 +369,20 @@ int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
         return -1;
     }
 
+    /* Ancla = la que tenga menos sistemas ahora mismo (empate = volado):
+     * conserva el balance 50/50 sin volver a un volado independiente por
+     * sistema (ver el comentario de spawn_solar_systems sobre por que se
+     * rechazo esa opcion). */
+    int count0 = 0, count1 = 0;
+    for (int i = 0; i < ss->count; ++i) {
+        if (ss->anchor[i] == 0) count0++; else count1++;
+    }
+    const int anchorIdx = (count0 != count1) ? (count0 < count1 ? 0 : 1)
+                                              : (int)rng_below(rng, 2u);
+
+    /* Capa = la menos poblada ahora mismo (empate = la de menor indice):
+     * mismo motivo que el balance de ancla arriba, adaptado a mas de dos
+     * baldes. */
     int layCount[SYS_LAYER_COUNT] = { 0 };
     for (int i = 0; i < ss->count; ++i) {
         layCount[ss->layer[i]]++;
@@ -326,11 +398,11 @@ int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
      * sistema vivo es aceptado a proposito, igual que en el spawn inicial. */
     const int col = (int)rng_below(rng, (uint32_t)ss->gridCols);
     const int row = (int)rng_below(rng, (uint32_t)ss->gridRows);
-    const float homeX = (col + 0.5f) * ss->cellW;
-    const float homeY = (row + 0.5f) * ss->cellH;
+    const float cx = (col + 0.5f) * ss->cellW + rng_range(rng, -ss->jitter, ss->jitter);
+    const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
     const int s = ss->count;
-    spawn_system_into_slot(w, ss, rng, s, homeX, homeY, layer);
+    spawn_system_into_slot(w, ss, rng, s, cx, cy, anchorIdx, layer);
     ss->count++;
     return s;
 }
@@ -379,8 +451,7 @@ void solar_system_remove(World *w, SolarSystems *ss, int s)
         ss->sun[s]         = ss->sun[last];
         ss->planetCount[s] = ss->planetCount[last];
         ss->ringFirst[s]   = ss->ringFirst[last];
-        ss->homeX[s]       = ss->homeX[last];
-        ss->homeY[s]       = ss->homeY[last];
+        ss->anchor[s]      = ss->anchor[last];
         ss->orbRad[s]      = ss->orbRad[last];
         ss->orbAng[s]      = ss->orbAng[last];
         ss->orbSpd[s]      = ss->orbSpd[last];
