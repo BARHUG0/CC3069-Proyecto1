@@ -1,6 +1,7 @@
 #include "systems.h"
 
 #include <math.h>
+#include <stddef.h>
 
 #include "raylib.h"
 #include "raymath.h"
