@@ -9,10 +9,11 @@
 #include "ecs.h"
 #include "rng.h"
 
-#define MAX_SYSTEMS         256
-#define MIN_PLANETS           2
-#define MAX_PLANETS_PER_SYS   8
-#define MAX_PLANETS_TOTAL   (MAX_SYSTEMS * MAX_PLANETS_PER_SYS)
+/* Tope de cordura para N (numero de sistemas). La memoria real se reserva a la
+ * N pedida en tiempo de ejecucion (solar_systems_alloc), no a este maximo. */
+#define MAX_SYSTEMS       2000000
+#define MIN_PLANETS             2
+#define MAX_PLANETS_PER_SYS     8
 
 /* Profundidad: cada sistema nace con su PROPIO valor unico en [0,1] (0 = mas
  * atras/chica/tenue, 1 = mas al frente, tamano/brillo completos) para que la
@@ -43,25 +44,36 @@ static inline float solar_depth_alpha(float depth)
  * geometria de las orbitas porque el anillo se dibuja una vez por orbita y no
  * depende del angulo actual del planeta. */
 typedef struct SolarSystems {
+    /* Arreglos en heap reservados por solar_systems_alloc: los de sistema a
+     * maxSystems entradas, los de anillo a maxRing (= maxSystems *
+     * MAX_PLANETS_PER_SYS). Punteros y no arreglos fijos para dimensionar a la
+     * N pedida (6 .. ~1e6). */
+    int    maxSystems;
+    int    maxRing;
+
     int    count;
-    float  cx[MAX_SYSTEMS];
-    float  cy[MAX_SYSTEMS];
-    Entity sun[MAX_SYSTEMS];
-    int    planetCount[MAX_SYSTEMS];
+    float  *cx;
+    float  *cy;
+    Entity *sun;
+    int    *planetCount;
 
     /* Anillos aplanados: el sistema s ocupa [ringFirst[s], ringFirst[s]+planetCount[s]) */
-    int   ringFirst[MAX_SYSTEMS];
-    float ringCx[MAX_PLANETS_TOTAL];
-    float ringCy[MAX_PLANETS_TOTAL];
-    float ringRx[MAX_PLANETS_TOTAL];
-    float ringRy[MAX_PLANETS_TOTAL];
+    int   *ringFirst;
+    float *ringCx;
+    float *ringCy;
+    float *ringRx;
+    float *ringRy;
     /* Entidad planeta del anillo i. Junta explicita entre esta tabla y el
      * World: los ids son consecutivos en la practica (ecs_reset justo antes),
      * pero eso es un accidente del orden de creacion, no una garantia. */
-    Entity ringEntity[MAX_PLANETS_TOTAL];
+    Entity *ringEntity;
     int   ringTotal;
 
     int totalPlanets;
+
+    /* Scratch para el orden de pintado atras->adelante (systems.c
+     * render_bodies), maxSystems ints. Vive aca para no reservarlo por frame. */
+    int *renderOrder;
 
     /* --- deriva: dos anclas fijas, una por mitad de pantalla, con el mismo
      * modelo (angulo + radio + velocidad angular) que ya usan los planetas
@@ -77,16 +89,16 @@ typedef struct SolarSystems {
      * radio grande y puede salirse de pantalla por momentos. */
     float anchorX[2];
     float anchorY[2];
-    int   anchor[MAX_SYSTEMS];  /* 0 o 1: que ancla le toca, al azar    */
-    float orbRad[MAX_SYSTEMS];  /* radio de orbita alrededor del ancla */
-    float orbAng[MAX_SYSTEMS];  /* angulo actual (rad)                 */
-    float orbSpd[MAX_SYSTEMS];  /* velocidad angular (rad/s), con signo */
+    int   *anchor;  /* 0 o 1: que ancla le toca, al azar    */
+    float *orbRad;  /* radio de orbita alrededor del ancla */
+    float *orbAng;  /* angulo actual (rad)                 */
+    float *orbSpd;  /* velocidad angular (rad/s), con signo */
 
     /* Profundidad unica por sistema en [0,1], ver solar_depth_* arriba.
      * IMPORTANTE: como anchor/orbRad/orbAng/orbSpd de arriba, debe copiarse en
      * el swap-remove de solar_system_remove (spawn.c) o queda desactualizada
      * tras un impacto de la Estrella de la Muerte. */
-    float depth[MAX_SYSTEMS];
+    float *depth;
 
     /* Layout de rejilla de spawn_solar_systems, guardado para que
      * spawn_one_system pueda hacer nacer un sistema nuevo (p.ej. tras un
@@ -96,6 +108,14 @@ typedef struct SolarSystems {
     float cellW, cellH, cellR;
     float sunRad, planetRef, jitter;
 } SolarSystems;
+
+/* Reserva SolarSystems para maxSystems sistemas (y maxSystems*MAX_PLANETS_PER_SYS
+ * slots de anillo). Devuelve NULL si algun arreglo no cupo en memoria. */
+SolarSystems *solar_systems_alloc(int maxSystems);
+void solar_systems_free(SolarSystems *ss);
+/* Vacia los contadores (count/ringTotal/totalPlanets) sin liberar memoria;
+ * el resto lo sobreescribe spawn_solar_systems. */
+void solar_systems_reset(SolarSystems *ss);
 
 /* Crea una estrella de fondo efimera (C_POS|C_RENDER|C_TWINKLE|C_LIFE).
  * Devuelve ECS_INVALID si el mundo esta lleno. */

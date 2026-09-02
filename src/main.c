@@ -26,9 +26,16 @@
 #define BENCHMARK_DURATION_SECS 10.0
 #define BENCHMARK_SAMPLES 10
 
-/* Presupuesto de estrellas: lo que queda del mundo tras reservar sitio para
- * todos los soles y planetas posibles. */
-#define MAX_STARS (ECS_MAX_ENTITIES - MAX_PLANETS_TOTAL - MAX_SYSTEMS - 1024u)
+/* Tope de estrellas de fondo. El mundo se dimensiona en tiempo de ejecucion a
+ * (planetas + soles + estrellas pedidas), no a este maximo. */
+#define MAX_STARS 1000000u
+/* Tope de cuerpos con estela. Por encima de esto solo los primeros
+ * TRAIL_BODY_BUDGET (soles y planetas en orden de creacion) dejan estela. No es
+ * solo memoria (~20k cuerpos ~= 19 MB de historial + ~170 MB de malla): la
+ * malla de estelas indexa vertices con int y (TRAIL_LEN-1)*cuerpos*6 desborda
+ * pasando ~750k cuerpos. Con N grande las estelas de todo se solaparian en una
+ * mancha de todos modos. */
+#define TRAIL_BODY_BUDGET 20000
 
 typedef struct Config {
     int          systems;    /* N, obligatorio                     */
@@ -53,7 +60,7 @@ typedef struct Config {
 static void print_usage(const char *exe)
 {
     printf("Uso: %s N [opciones]\n\n", exe);
-    printf("  N                  numero de sistemas solares (1-%d)\n", MAX_SYSTEMS);
+    printf("  N                  numero de sistemas solares (1-%d; N grande = varios GB RAM y FPS muy bajos)\n", MAX_SYSTEMS);
     printf("\nOpciones:\n");
     printf("  --stars M          estrellas de fondo simultaneas (default %d, max %u)\n",
            DEFAULT_STARS, MAX_STARS);
@@ -300,30 +307,43 @@ int main(int argc, char **argv)
         seed = (unsigned int)time(NULL);
     }
 
-    World *world = ecs_world_alloc(0);
+    /* Todo se dimensiona a la N pedida, no a un maximo de compilacion. Con N
+     * de cientos de miles a un millon esto son varios GB — es lo que se pidio
+     * ("aunque los FPS sean pesimos"). */
+    const int      maxSystems = cfg.systems;
+    const long     maxRing    = (long)maxSystems * MAX_PLANETS_PER_SYS;
+    const uint32_t capacity   = (uint32_t)(maxRing + maxSystems
+                                           + (long)cfg.stars + 1024);
+
+    World *world = ecs_world_alloc(capacity);
     if (world == NULL) {
-        fprintf(stderr, "Error: no se pudo reservar el mundo (%.1f MB).\n",
-                (double)sizeof(World) / (1024.0 * 1024.0));
+        fprintf(stderr, "Error: no se pudo reservar el mundo para N=%d "
+                "(~%.0f MB de entidades). Prueba una N menor.\n",
+                cfg.systems, (double)capacity * 79.0 / (1024.0 * 1024.0));
         return 1;
     }
 
-    /* SolarSystems y TrailBuffer tambien van al heap: SolarSystems son ~40 KB,
-     * TrailBuffer ~1.8 MB (TRAIL_LEN muestras x MAX_TRAIL_BODIES cuerpos x 2
-     * ejes), pero mantener el stack limpio evita sorpresas en hilos con pila
-     * pequena. */
-    SolarSystems *ss = (SolarSystems *)calloc(1, sizeof(SolarSystems));
+    SolarSystems *ss = solar_systems_alloc(maxSystems);
     if (ss == NULL) {
-        fprintf(stderr, "Error: no se pudo reservar los sistemas solares.\n");
+        fprintf(stderr, "Error: no se pudo reservar los sistemas solares (N=%d).\n",
+                cfg.systems);
         ecs_world_free(world);
         return 1;
     }
 
-    TrailBuffer *tb = (TrailBuffer *)calloc(1, sizeof(TrailBuffer));
+    /* Estelas: todos los cuerpos si N es chico, si no un tope (ver
+     * TRAIL_BODY_BUDGET). Si ni el tope cabe en memoria, se corre sin estelas. */
+    const long allBodies   = maxRing + maxSystems;
+    const int  trailBodies  = (allBodies < TRAIL_BODY_BUDGET)
+                              ? (int)allBodies : TRAIL_BODY_BUDGET;
+    if (allBodies > TRAIL_BODY_BUDGET) {
+        fprintf(stderr, "Aviso: N grande, solo los primeros %d cuerpos dejan estela.\n",
+                TRAIL_BODY_BUDGET);
+    }
+    TrailBuffer *tb = trail_buffer_alloc(trailBodies);
     if (tb == NULL) {
-        fprintf(stderr, "Error: no se pudo reservar las estelas.\n");
-        free(ss);
-        ecs_world_free(world);
-        return 1;
+        fprintf(stderr, "Aviso: sin memoria para estelas, se desactivan.\n");
+        cfg.trails = 0;
     }
 
     /* FLAG_WINDOW_HIGHDPI: en pantallas con escalado (125%, 150%) hace que el
@@ -338,8 +358,8 @@ int main(int argc, char **argv)
     InitWindow(cfg.width, cfg.height, "Screensaver ECS - estrellas y sistemas solares");
     if (!IsWindowReady()) {
         fprintf(stderr, "Error: no se pudo crear la ventana.\n");
-        free(tb);
-        free(ss);
+        trail_buffer_free(tb);
+        solar_systems_free(ss);
         ecs_world_free(world);
         return 1;
     }
@@ -583,8 +603,8 @@ int main(int argc, char **argv)
         }
     }
 
-    free(tb);
-    free(ss);
+    trail_buffer_free(tb);
+    solar_systems_free(ss);
     ecs_world_free(world);
     return 0;
 }

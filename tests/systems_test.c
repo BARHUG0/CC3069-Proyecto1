@@ -38,6 +38,46 @@ static void assert_worlds_equal(const World *a, const World *b)
     assert(memcmp(a->freeList, b->freeList, n * sizeof(*a->freeList)) == 0);
 }
 
+/* SolarSystems y TrailBuffer tambien son SoA en heap: compara arreglo por
+ * arreglo sobre las entradas validas. */
+static void assert_systems_equal(const SolarSystems *a, const SolarSystems *b)
+{
+    assert(a->count == b->count);
+    assert(a->ringTotal == b->ringTotal);
+    assert(a->totalPlanets == b->totalPlanets);
+    const int n = a->count, r = a->ringTotal;
+    assert(memcmp(a->cx, b->cx, (size_t)n * sizeof(float)) == 0);
+    assert(memcmp(a->cy, b->cy, (size_t)n * sizeof(float)) == 0);
+    assert(memcmp(a->sun, b->sun, (size_t)n * sizeof(Entity)) == 0);
+    assert(memcmp(a->planetCount, b->planetCount, (size_t)n * sizeof(int)) == 0);
+    assert(memcmp(a->ringFirst, b->ringFirst, (size_t)n * sizeof(int)) == 0);
+    assert(memcmp(a->anchor, b->anchor, (size_t)n * sizeof(int)) == 0);
+    assert(memcmp(a->orbRad, b->orbRad, (size_t)n * sizeof(float)) == 0);
+    assert(memcmp(a->orbAng, b->orbAng, (size_t)n * sizeof(float)) == 0);
+    assert(memcmp(a->orbSpd, b->orbSpd, (size_t)n * sizeof(float)) == 0);
+    assert(memcmp(a->depth, b->depth, (size_t)n * sizeof(float)) == 0);
+    assert(memcmp(a->ringCx, b->ringCx, (size_t)r * sizeof(float)) == 0);
+    assert(memcmp(a->ringCy, b->ringCy, (size_t)r * sizeof(float)) == 0);
+    assert(memcmp(a->ringRx, b->ringRx, (size_t)r * sizeof(float)) == 0);
+    assert(memcmp(a->ringRy, b->ringRy, (size_t)r * sizeof(float)) == 0);
+    assert(memcmp(a->ringEntity, b->ringEntity, (size_t)r * sizeof(Entity)) == 0);
+}
+
+static void assert_trails_equal(const TrailBuffer *a, const TrailBuffer *b)
+{
+    assert(a->maxBodies == b->maxBodies);
+    assert(a->bodyCount == b->bodyCount);
+    assert(a->head == b->head && a->fill == b->fill && a->accum == b->accum);
+    const size_t nb = (size_t)a->bodyCount;
+    const size_t samples = (size_t)TRAIL_LEN * (size_t)a->maxBodies;
+    assert(memcmp(a->body, b->body, nb * sizeof(Entity)) == 0);
+    assert(memcmp(a->cr, b->cr, nb) == 0);
+    assert(memcmp(a->cg, b->cg, nb) == 0);
+    assert(memcmp(a->cb, b->cb, nb) == 0);
+    assert(memcmp(a->x, b->x, samples * sizeof(float)) == 0);
+    assert(memcmp(a->y, b->y, samples * sizeof(float)) == 0);
+}
+
 static void assert_starfield_full(const World *world, const StarField *starfield)
 {
     int stars = 0;
@@ -105,7 +145,7 @@ static void assert_layout_bounds(World *world, SolarSystems *systems)
             Rng rng;
             rng_seed(&rng, 20260901u);
             ecs_reset(world);
-            memset(systems, 0, sizeof(*systems));
+            solar_systems_reset(systems);
             spawn_solar_systems(world, systems, &rng, counts[count],
                                 widths[size], heights[size]);
             assert_systems_orbit(world, systems);
@@ -124,10 +164,10 @@ static void assert_drift_visible(World *world, SolarSystems *systems)
     Rng rng;
     rng_seed(&rng, 20260901u);
     ecs_reset(world);
-    memset(systems, 0, sizeof(*systems));
+    solar_systems_reset(systems);
     spawn_solar_systems(world, systems, &rng, 12, 1280.0f, 720.0f);
 
-    float x0[MAX_SYSTEMS], y0[MAX_SYSTEMS];
+    float x0[64], y0[64];
     for (int s = 0; s < systems->count; ++s) {
         x0[s] = systems->cx[s];
         y0[s] = systems->cy[s];
@@ -153,7 +193,7 @@ static void assert_depth_survives_churn(World *world, SolarSystems *systems)
     Rng rng;
     rng_seed(&rng, 20260901u);
     ecs_reset(world);
-    memset(systems, 0, sizeof(*systems));
+    solar_systems_reset(systems);
     spawn_solar_systems(world, systems, &rng, 20, 1280.0f, 720.0f);
 
     for (int k = 0; k < 6; ++k) {
@@ -171,10 +211,10 @@ int main(void)
 {
     World *sequentialWorld = ecs_world_alloc(0);
     World *parallelWorld = ecs_world_alloc(0);
-    SolarSystems *sequentialSystems = calloc(1, sizeof(*sequentialSystems));
-    SolarSystems *parallelSystems = calloc(1, sizeof(*parallelSystems));
-    TrailBuffer *sequentialTrails = calloc(1, sizeof(*sequentialTrails));
-    TrailBuffer *parallelTrails = calloc(1, sizeof(*parallelTrails));
+    SolarSystems *sequentialSystems = solar_systems_alloc(512);
+    SolarSystems *parallelSystems = solar_systems_alloc(512);
+    TrailBuffer *sequentialTrails = trail_buffer_alloc(512 * MAX_PLANETS_PER_SYS);
+    TrailBuffer *parallelTrails = trail_buffer_alloc(512 * MAX_PLANETS_PER_SYS);
 
     assert(sequentialWorld != NULL);
     assert(parallelWorld != NULL);
@@ -214,12 +254,12 @@ int main(void)
     assert(memcmp(&sequentialStars, &parallelStars, sizeof(sequentialStars)) == 0);
     assert(memcmp(&sequentialRng, &parallelRng, sizeof(sequentialRng)) == 0);
     assert_worlds_equal(sequentialWorld, parallelWorld);
-    assert(memcmp(sequentialSystems, parallelSystems, sizeof(*sequentialSystems)) == 0);
+    assert_systems_equal(sequentialSystems, parallelSystems);
 
     sys_drift(sequentialWorld, sequentialSystems, 0.016f);
     sys_drift(parallelWorld, parallelSystems, 0.016f);
     assert_worlds_equal(sequentialWorld, parallelWorld);
-    assert(memcmp(sequentialSystems, parallelSystems, sizeof(*sequentialSystems)) == 0);
+    assert_systems_equal(sequentialSystems, parallelSystems);
     assert_systems_orbit(sequentialWorld, sequentialSystems);
     assert_systems_orbit(parallelWorld, parallelSystems);
 
@@ -231,7 +271,7 @@ int main(void)
         sys_update_parallel(parallelWorld, parallelTrails, 3.5f, 20.0f);
     assert(sequentialKilled == parallelKilled);
     assert(sequentialKilled == sequentialStars.targetStars);
-    assert(memcmp(sequentialTrails, parallelTrails, sizeof(*sequentialTrails)) == 0);
+    assert_trails_equal(sequentialTrails, parallelTrails);
     assert_worlds_equal(sequentialWorld, parallelWorld);
 
     rng_seed(&sequentialRng, 20260901u);
@@ -252,17 +292,17 @@ int main(void)
     sys_drift(parallelWorld, parallelSystems, 0.016f);
     assert(sys_update(sequentialWorld, sequentialTrails, 1.0f, 0.016f) ==
            sys_update_parallel(parallelWorld, parallelTrails, 1.0f, 0.016f));
-    assert(memcmp(sequentialTrails, parallelTrails, sizeof(*sequentialTrails)) == 0);
+    assert_trails_equal(sequentialTrails, parallelTrails);
     assert_worlds_equal(sequentialWorld, parallelWorld);
 
     assert_layout_bounds(sequentialWorld, sequentialSystems);
     assert_drift_visible(sequentialWorld, sequentialSystems);
     assert_depth_survives_churn(sequentialWorld, sequentialSystems);
 
-    free(parallelTrails);
-    free(sequentialTrails);
-    free(parallelSystems);
-    free(sequentialSystems);
+    trail_buffer_free(parallelTrails);
+    trail_buffer_free(sequentialTrails);
+    solar_systems_free(parallelSystems);
+    solar_systems_free(sequentialSystems);
     ecs_world_free(parallelWorld);
     ecs_world_free(sequentialWorld);
     return 0;

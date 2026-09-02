@@ -29,52 +29,53 @@ int main(void)
     assert(ds.posX > 0.0f);
     assert(ds.posY > 0.0f);
 
-    SolarSystems ss;
-    memset(&ss, 0, sizeof(ss));
-    ss.count = 3;
-    ss.cellR = 40.0f;
-    ss.gridCols = 1;
-    ss.gridRows = 1;
-    ss.cellW = 800.0f;
-    ss.cellH = 600.0f;
-    for (int i = 0; i < ss.count; ++i) {
-        ss.cx[i] = 100.0f + 100.0f * (float)i;
-        ss.cy[i] = 200.0f + 50.0f * (float)i;
-        ss.depth[i] = (float)i / (float)(ss.count - 1);
+    SolarSystems *ss = solar_systems_alloc(16);
+    assert(ss != NULL);
+    ss->count = 3;
+    ss->cellR = 40.0f;
+    ss->gridCols = 1;
+    ss->gridRows = 1;
+    ss->cellW = 800.0f;
+    ss->cellH = 600.0f;
+    for (int i = 0; i < ss->count; ++i) {
+        ss->cx[i] = 100.0f + 100.0f * (float)i;
+        ss->cy[i] = 200.0f + 50.0f * (float)i;
+        ss->depth[i] = (float)i / (float)(ss->count - 1);
     }
 
     Rng rng;
     rng_seed(&rng, 123u);
-    assert(deathstar_fire(&ds, &ss, &rng) == 1);
-    assert(ds.victim >= 0 && ds.victim < ss.count);
-    assert(ds.aimX == ss.cx[ds.victim]);
-    assert(ds.aimY == ss.cy[ds.victim]);
-    assert(deathstar_fire(&ds, &ss, &rng) == 0);
+    assert(deathstar_fire(&ds, ss, &rng) == 1);
+    assert(ds.victim >= 0 && ds.victim < ss->count);
+    assert(ds.aimX == ss->cx[ds.victim]);
+    assert(ds.aimY == ss->cy[ds.victim]);
+    assert(deathstar_fire(&ds, ss, &rng) == 0);
 
     World *world = ecs_world_alloc(0);
-    TrailBuffer *tb = calloc(1, sizeof(*tb));
+    TrailBuffer *tb = trail_buffer_alloc(64);
     assert(world != NULL);
     assert(tb != NULL);
 
-    deathstar_update(&ds, world, &ss, tb, &rng, 2, 800.0f, 600.0f, 1.0f);
+    deathstar_update(&ds, world, ss, tb, &rng, 2, 800.0f, 600.0f, 1.0f);
     assert(ds.phase == DS_FIRE);
     assert(ds.victim == -1);
     assert(ds.kills == 1);
-    assert(ss.count == 2);
+    assert(ss->count == 2);
 
     deathstar_reset(&ds);
-    ss.count = 1;
-    ss.cx[0] = -1.0f;
-    ss.cy[0] = 300.0f;
-    assert(deathstar_fire(&ds, &ss, &rng) == 0);
+    ss->count = 1;
+    ss->cx[0] = -1.0f;
+    ss->cy[0] = 300.0f;
+    assert(deathstar_fire(&ds, ss, &rng) == 0);
 
-    ss.count = 2;
-    ss.cx[1] = 400.0f;
-    ss.cy[1] = 300.0f;
-    assert(deathstar_fire(&ds, &ss, &rng) == 1);
+    ss->count = 2;
+    ss->cx[1] = 400.0f;
+    ss->cy[1] = 300.0f;
+    assert(deathstar_fire(&ds, ss, &rng) == 1);
     assert(ds.victim == 1);
 
-    free(tb);
+    trail_buffer_free(tb);
+    solar_systems_free(ss);
     ecs_world_free(world);
     return 0;
 }

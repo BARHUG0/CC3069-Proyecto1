@@ -68,22 +68,31 @@ void sys_drift(World *w, SolarSystems *ss, float dt);
  */
 #define TRAIL_LEN        120    /* muestras por cuerpo (~5 s a TRAIL_HZ)   */
 #define TRAIL_HZ         24.0f  /* muestreo fijo, independiente del FPS    */
-#define MAX_TRAIL_BODIES (MAX_SYSTEMS + MAX_PLANETS_TOTAL)
 
+/* SoA en heap, dimensionado a maxBodies por trail_buffer_alloc. x/y son
+ * arreglos planos [TRAIL_LEN * maxBodies], indexados [k * maxBodies + b]
+ * (mismo layout [muestra][cuerpo] que antes, ahora 1D). Con N muy grande el
+ * buffer completo (soles+planetas) puede pesar GB; main.c reintenta con un
+ * tope y, si tampoco cabe, corre sin estelas. */
 typedef struct TrailBuffer {
-    int     bodyCount;
-    Entity  body[MAX_TRAIL_BODIES];
-    uint8_t cr[MAX_TRAIL_BODIES];
-    uint8_t cg[MAX_TRAIL_BODIES];
-    uint8_t cb[MAX_TRAIL_BODIES];
+    int      maxBodies;
+    int      bodyCount;
+    Entity  *body;
+    uint8_t *cr;
+    uint8_t *cg;
+    uint8_t *cb;
 
-    float x[TRAIL_LEN][MAX_TRAIL_BODIES];
-    float y[TRAIL_LEN][MAX_TRAIL_BODIES];
+    float *x;   /* [TRAIL_LEN * maxBodies] */
+    float *y;
 
     int   head;  /* proxima rebanada a escribir                */
     int   fill;  /* rebanadas validas, satura en TRAIL_LEN      */
     float accum; /* fraccion de tick de muestreo pendiente      */
 } TrailBuffer;
+
+/* Reserva un TrailBuffer para maxBodies cuerpos. Devuelve NULL si no cupo. */
+TrailBuffer *trail_buffer_alloc(int maxBodies);
+void trail_buffer_free(TrailBuffer *tb);
 
 /* Recorre sun[] y ringEntity[] de ss una vez y arma la tabla de cuerpos. */
 void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss);

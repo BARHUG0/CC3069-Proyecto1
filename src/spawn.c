@@ -1,7 +1,74 @@
 #include "spawn.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* Cada arreglo SoA se reserva por separado; ALLOC deja ss medio construido si
+ * algo falla y el llamador hace solar_systems_free (tolera NULL). */
+#define SS_ALLOC(field, count)                                  \
+    do {                                                        \
+        ss->field = calloc((size_t)(count), sizeof(*ss->field));\
+        if (ss->field == NULL) { solar_systems_free(ss); return NULL; } \
+    } while (0)
+
+SolarSystems *solar_systems_alloc(int maxSystems)
+{
+    if (maxSystems < 1) {
+        maxSystems = 1;
+    }
+    const size_t maxRing = (size_t)maxSystems * MAX_PLANETS_PER_SYS;
+
+    SolarSystems *ss = (SolarSystems *)calloc(1, sizeof(SolarSystems));
+    if (ss == NULL) {
+        return NULL;
+    }
+    ss->maxSystems = maxSystems;
+    ss->maxRing    = (int)maxRing;
+
+    SS_ALLOC(cx,          maxSystems);
+    SS_ALLOC(cy,          maxSystems);
+    SS_ALLOC(sun,         maxSystems);
+    SS_ALLOC(planetCount, maxSystems);
+    SS_ALLOC(ringFirst,   maxSystems);
+    SS_ALLOC(anchor,      maxSystems);
+    SS_ALLOC(orbRad,      maxSystems);
+    SS_ALLOC(orbAng,      maxSystems);
+    SS_ALLOC(orbSpd,      maxSystems);
+    SS_ALLOC(depth,       maxSystems);
+    SS_ALLOC(renderOrder, maxSystems);
+    SS_ALLOC(ringCx,      maxRing);
+    SS_ALLOC(ringCy,      maxRing);
+    SS_ALLOC(ringRx,      maxRing);
+    SS_ALLOC(ringRy,      maxRing);
+    SS_ALLOC(ringEntity,  maxRing);
+
+    return ss;
+}
+
+#undef SS_ALLOC
+
+void solar_systems_free(SolarSystems *ss)
+{
+    if (ss == NULL) {
+        return;
+    }
+    free(ss->cx);         free(ss->cy);
+    free(ss->sun);        free(ss->planetCount);
+    free(ss->ringFirst);  free(ss->anchor);
+    free(ss->orbRad);     free(ss->orbAng);     free(ss->orbSpd);
+    free(ss->depth);      free(ss->renderOrder);
+    free(ss->ringCx);     free(ss->ringCy);
+    free(ss->ringRx);     free(ss->ringRy);     free(ss->ringEntity);
+    free(ss);
+}
+
+void solar_systems_reset(SolarSystems *ss)
+{
+    ss->count        = 0;
+    ss->ringTotal    = 0;
+    ss->totalPlanets = 0;
+}
 
 /* Paletas fijas (no hay razon para generar color libre: los colores estelares
  * reales caen en una banda estrecha del azul al ambar). Retunadas para verse
@@ -70,6 +137,12 @@ static float clampf(float v, float lo, float hi)
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
+}
+
+static int cmp_float_asc(const void *a, const void *b)
+{
+    const float x = *(const float *)a, y = *(const float *)b;
+    return (x > y) - (x < y);
 }
 
 Entity spawn_star(World *w, Rng *rng, float screenW, float screenH)
@@ -234,7 +307,7 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
 
     int created = 0;
     for (int i = 0; i < planets; ++i) {
-        if (ss->ringTotal >= MAX_PLANETS_TOTAL) {
+        if (ss->ringTotal >= ss->maxRing) {
             break;
         }
 
@@ -281,8 +354,8 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
 void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
                          int n, float screenW, float screenH)
 {
-    if (n > MAX_SYSTEMS) n = MAX_SYSTEMS;
-    if (n < 1)           n = 1;
+    if (n > ss->maxSystems) n = ss->maxSystems;
+    if (n < 1)              n = 1;
 
     ss->count        = n;
     ss->ringTotal    = 0;
@@ -322,8 +395,12 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
      * y se baraja con Fisher-Yates: el orden es al azar, el conteo por lado
      * siempre queda parejo. Barajar el ancla (y no la posicion, que sigue
      * fija por col/row) es lo que garantiza que a que mitad orbita un
-     * sistema no tenga relacion con en que mitad nacio. */
-    int assign[MAX_SYSTEMS];
+     * sistema no tenga relacion con en que mitad nacio.
+     *
+     * assign/dep van al heap (no al stack): con N hasta ~1e6, un
+     * int[N]+float[N] en la pila la revienta. assign reusa el scratch
+     * renderOrder (int, maxSystems) que ya reserva solar_systems_alloc. */
+    int *assign = ss->renderOrder;
     for (int s = 0; s < n; ++s) {
         assign[s] = (s < n / 2) ? 0 : 1;
     }
@@ -334,20 +411,21 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         assign[j] = tmp;
     }
 
-    /* Profundidad: reparto uniforme en [0,1] (dep[s] = s/(n-1)) y luego
-     * barajado, mismo criterio que las anclas de arriba. Un rng por sistema
-     * daria colisiones y huecos; el reparto uniforme garantiza que cada
-     * sistema tenga su propia profundidad y que esten repartidas parejo, el
-     * shuffle rompe la correlacion con la posicion en la rejilla. */
-    float dep[MAX_SYSTEMS];
+    /* Profundidad: reparto uniforme en [0,1] (s/(n-1)) y luego barajado, mismo
+     * criterio que las anclas de arriba. Un rng por sistema daria colisiones y
+     * huecos; el reparto uniforme garantiza profundidad propia para cada
+     * sistema y repartida parejo, el shuffle rompe la correlacion con la
+     * posicion en la rejilla. Se baraja in-place sobre ss->depth (ya reservado
+     * a maxSystems) para no pedir un buffer extra: spawn_system_into_slot
+     * recibe ss->depth[s] y lo reescribe con el mismo valor. */
     for (int s = 0; s < n; ++s) {
-        dep[s] = (n > 1) ? (float)s / (float)(n - 1) : 1.0f;
+        ss->depth[s] = (n > 1) ? (float)s / (float)(n - 1) : 1.0f;
     }
     for (int s = n - 1; s > 0; --s) {
         const int j = (int)rng_below(rng, (uint32_t)(s + 1));
-        const float tmp = dep[s];
-        dep[s] = dep[j];
-        dep[j] = tmp;
+        const float tmp = ss->depth[s];
+        ss->depth[s] = ss->depth[j];
+        ss->depth[j] = tmp;
     }
 
     for (int s = 0; s < n; ++s) {
@@ -358,13 +436,13 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         const float cx = (col + 0.5f) * ss->cellW + rng_range(rng, -ss->jitter, ss->jitter);
         const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
-        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s], dep[s]);
+        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s], ss->depth[s]);
     }
 }
 
 int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
 {
-    if (ss->count >= MAX_SYSTEMS) {
+    if (ss->count >= ss->maxSystems) {
         return -1;
     }
 
@@ -382,28 +460,29 @@ int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
     /* Profundidad = punto medio del hueco mas ancho en la lista de
      * profundidades vivas (incluidos los extremos 0 y 1). Asi el sistema nuevo
      * cae donde mas separado queda de los demas y ninguno comparte
-     * profundidad, aunque hayan muerto y renacido varios. */
-    float sorted[MAX_SYSTEMS];
-    for (int i = 0; i < ss->count; ++i) {
-        sorted[i] = ss->depth[i];
-    }
-    for (int i = 1; i < ss->count; ++i) {
-        const float v = sorted[i];
-        int j = i - 1;
-        while (j >= 0 && sorted[j] > v) {
-            sorted[j + 1] = sorted[j];
-            --j;
+     * profundidad, aunque hayan muerto y renacido varios. sorted va al heap (N
+     * hasta ~1e6); si no cupo, cae a una profundidad al azar — una colision
+     * exacta entre dos de un millon es irrelevante visualmente. */
+    float depth;
+    float *sorted = (float *)malloc((size_t)ss->count * sizeof(float));
+    if (sorted == NULL) {
+        depth = rng_f01(rng);
+    } else {
+        for (int i = 0; i < ss->count; ++i) {
+            sorted[i] = ss->depth[i];
         }
-        sorted[j + 1] = v;
-    }
-    float lo = 0.0f, bestGap = -1.0f, depth = 0.5f;
-    for (int i = 0; i <= ss->count; ++i) {
-        const float hi = (i < ss->count) ? sorted[i] : 1.0f;
-        if (hi - lo > bestGap) {
-            bestGap = hi - lo;
-            depth = 0.5f * (lo + hi);
+        qsort(sorted, (size_t)ss->count, sizeof(float), cmp_float_asc);
+        float lo = 0.0f, bestGap = -1.0f;
+        depth = 0.5f;
+        for (int i = 0; i <= ss->count; ++i) {
+            const float hi = (i < ss->count) ? sorted[i] : 1.0f;
+            if (hi - lo > bestGap) {
+                bestGap = hi - lo;
+                depth = 0.5f * (lo + hi);
+            }
+            lo = hi;
         }
-        lo = hi;
+        free(sorted);
     }
 
     /* Celda al azar de la misma rejilla del spawn inicial. Solaparse con un

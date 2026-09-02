@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "raylib.h"
 #include "raymath.h"
@@ -272,6 +273,46 @@ int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt)
 
 /* --- estelas -------------------------------------------------------------- */
 
+/* x/y son planos [TRAIL_LEN * maxBodies]; el layout logico sigue siendo
+ * [muestra k][cuerpo b]. size_t para no desbordar int con maxBodies grande. */
+#define TB_AT(tb, arr, k, b) ((tb)->arr[(size_t)(k) * (tb)->maxBodies + (size_t)(b)])
+
+TrailBuffer *trail_buffer_alloc(int maxBodies)
+{
+    if (maxBodies < 1) {
+        maxBodies = 1;
+    }
+    TrailBuffer *tb = (TrailBuffer *)calloc(1, sizeof(TrailBuffer));
+    if (tb == NULL) {
+        return NULL;
+    }
+    tb->maxBodies = maxBodies;
+
+    const size_t bodies  = (size_t)maxBodies;
+    const size_t samples = (size_t)TRAIL_LEN * bodies;
+    tb->body = calloc(bodies, sizeof(*tb->body));
+    tb->cr   = calloc(bodies, sizeof(*tb->cr));
+    tb->cg   = calloc(bodies, sizeof(*tb->cg));
+    tb->cb   = calloc(bodies, sizeof(*tb->cb));
+    tb->x    = calloc(samples, sizeof(*tb->x));
+    tb->y    = calloc(samples, sizeof(*tb->y));
+    if (!tb->body || !tb->cr || !tb->cg || !tb->cb || !tb->x || !tb->y) {
+        trail_buffer_free(tb);
+        return NULL;
+    }
+    return tb;
+}
+
+void trail_buffer_free(TrailBuffer *tb)
+{
+    if (tb == NULL) {
+        return;
+    }
+    free(tb->body); free(tb->cr); free(tb->cg); free(tb->cb);
+    free(tb->x); free(tb->y);
+    free(tb);
+}
+
 /* Agrega el cuerpo e al final de la tabla, con su color atenuado por mul
  * (ver solar_depth_alpha, spawn.h — asi la estela de un sistema de atras no
  * queda mas brillante que su propio sol/planeta ya atenuados). Siembra las
@@ -280,7 +321,7 @@ int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt)
  * un eje de tiempo COMPARTIDO por todos los cuerpos). */
 static void trails_append_body(TrailBuffer *tb, const World *w, Entity e, float mul)
 {
-    if (tb->bodyCount >= MAX_TRAIL_BODIES) {
+    if (tb->bodyCount >= tb->maxBodies) {
         return;
     }
     const int b = tb->bodyCount++;
@@ -289,8 +330,8 @@ static void trails_append_body(TrailBuffer *tb, const World *w, Entity e, float 
     tb->cg[b]   = (uint8_t)((float)w->cg[e] * mul);
     tb->cb[b]   = (uint8_t)((float)w->cb[e] * mul);
     for (int k = 0; k < TRAIL_LEN; ++k) {
-        tb->x[k][b] = w->px[e];
-        tb->y[k][b] = w->py[e];
+        TB_AT(tb, x, k, b) = w->px[e];
+        TB_AT(tb, y, k, b) = w->py[e];
     }
 }
 
@@ -299,6 +340,9 @@ static void trails_append_body(TrailBuffer *tb, const World *w, Entity e, float 
  * asi cada cuerpo se agrega con el mul de SU sistema. */
 void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss)
 {
+    if (tb == NULL) {
+        return;
+    }
     tb->bodyCount = 0;
     for (int s = 0; s < ss->count; ++s) {
         const float mul = solar_depth_alpha(ss->depth[s]);
@@ -319,6 +363,9 @@ void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss)
 
 void sys_trails(const World *w, TrailBuffer *tb, float dt)
 {
+    if (tb == NULL) {
+        return;
+    }
     tb->accum += dt;
 
     const float period = 1.0f / TRAIL_HZ;
@@ -330,8 +377,8 @@ void sys_trails(const World *w, TrailBuffer *tb, float dt)
     const int head = tb->head;
     for (int b = 0; b < tb->bodyCount; ++b) {
         const Entity e = tb->body[b];
-        tb->x[head][b] = w->px[e];
-        tb->y[head][b] = w->py[e];
+        TB_AT(tb, x, head, b) = w->px[e];
+        TB_AT(tb, y, head, b) = w->py[e];
     }
 
     tb->head = (head + 1) % TRAIL_LEN;
@@ -349,8 +396,8 @@ static void trails_drop_column(TrailBuffer *tb, int b)
     const int last = tb->bodyCount - 1;
     if (b != last) {
         for (int k = 0; k < TRAIL_LEN; ++k) {
-            tb->x[k][b] = tb->x[k][last];
-            tb->y[k][b] = tb->y[k][last];
+            TB_AT(tb, x, k, b) = TB_AT(tb, x, k, last);
+            TB_AT(tb, y, k, b) = TB_AT(tb, y, k, last);
         }
         tb->body[b] = tb->body[last];
         tb->cr[b]   = tb->cr[last];
@@ -372,6 +419,9 @@ static int trails_find_body(const TrailBuffer *tb, Entity e)
 
 void trails_drop_system(TrailBuffer *tb, const SolarSystems *ss, int s)
 {
+    if (tb == NULL) {
+        return;
+    }
     if (ss->sun[s] != ECS_INVALID) {
         const int b = trails_find_body(tb, ss->sun[s]);
         if (b >= 0) {
@@ -390,6 +440,9 @@ void trails_drop_system(TrailBuffer *tb, const SolarSystems *ss, int s)
 
 void trails_add_system(TrailBuffer *tb, const World *w, const SolarSystems *ss, int s)
 {
+    if (tb == NULL) {
+        return;
+    }
     const float mul = solar_depth_alpha(ss->depth[s]);
     if (ss->sun[s] != ECS_INVALID) {
         trails_append_body(tb, w, ss->sun[s], mul);
@@ -530,8 +583,11 @@ static int ensure_trail_mesh(int requiredVertices)
 
 static void render_trails(const TrailBuffer *tb)
 {
+    if (tb == NULL) {
+        return;
+    }
     const int requiredVertices = (TRAIL_LEN - 1) * tb->bodyCount * 6;
-    if (tb->fill < 2 || !ensure_trail_mesh(requiredVertices)) {
+    if (tb->fill < 2 || requiredVertices <= 0 || !ensure_trail_mesh(requiredVertices)) {
         return;
     }
 
@@ -545,8 +601,8 @@ static void render_trails(const TrailBuffer *tb)
         const unsigned char a = alpha8(t * t * 0.55f);
 
         for (int b = 0; b < tb->bodyCount; ++b) {
-            const Vector2 p0 = { tb->x[i0][b], tb->y[i0][b] };
-            const Vector2 p1 = { tb->x[i1][b], tb->y[i1][b] };
+            const Vector2 p0 = { TB_AT(tb, x, i0, b), TB_AT(tb, y, i0, b) };
+            const Vector2 p1 = { TB_AT(tb, x, i1, b), TB_AT(tb, y, i1, b) };
             vertexCount = append_trail_segment(
                 trailMesh.vertices, trailMesh.colors, vertexCount, p0, p1,
                 (Color){ tb->cr[b], tb->cg[b], tb->cb[b], a });
@@ -603,32 +659,34 @@ static void render_sun_glow(const World *w, const SolarSystems *ss)
  * atenuan por profundidad (el nucleo del sol tambien — es el elemento mas
  * grande de cada sistema, dejarlo sin atenuar tapaba el efecto de distancia).
  *
- * ponytail: insertion sort O(n^2) — con MAX_SYSTEMS=256 son ~32k comparaciones
- * en el peor caso, despreciable frente al render. Pasar a un sort O(n log n)
- * si MAX_SYSTEMS crece mucho.
+ * El sort usa qsort O(n log n) sobre ss->renderOrder (scratch en heap, no en
+ * la pila — ss->count llega a ~1e6). El comparador lee un puntero file-static
+ * al SolarSystems actual: seguro porque el render corre solo en el hilo
+ * principal (qsort_r no es portable).
  *
  * ponytail: sin orden intra-sistema (un planeta siempre se dibuja encima de
  * su propio sol, nunca detras, aunque su angulo de orbita lo pondria
  * "detras" en una vista con profundidad real). Barato de agregar con
  * sinf(oang[e]) si algun dia se nota; no es lo que se pidio. */
+static const SolarSystems *g_depthSortCtx;
+
+static int cmp_by_depth(const void *a, const void *b)
+{
+    const float da = g_depthSortCtx->depth[*(const int *)a];
+    const float db = g_depthSortCtx->depth[*(const int *)b];
+    return (da > db) - (da < db);
+}
+
 static void render_bodies(const World *w, const SolarSystems *ss)
 {
-    int order[MAX_SYSTEMS];
     for (int i = 0; i < ss->count; ++i) {
-        order[i] = i;
+        ss->renderOrder[i] = i;
     }
-    for (int i = 1; i < ss->count; ++i) {
-        const int v = order[i];
-        int j = i - 1;
-        while (j >= 0 && ss->depth[order[j]] > ss->depth[v]) {
-            order[j + 1] = order[j];
-            --j;
-        }
-        order[j + 1] = v;
-    }
+    g_depthSortCtx = ss;
+    qsort(ss->renderOrder, (size_t)ss->count, sizeof(int), cmp_by_depth);
 
     for (int k = 0; k < ss->count; ++k) {
-        const int s = order[k];
+        const int s = ss->renderOrder[k];
         const unsigned char a = alpha8(solar_depth_alpha(ss->depth[s]));
         if (ss->sun[s] != ECS_INVALID) {
             const Entity e = ss->sun[s];
