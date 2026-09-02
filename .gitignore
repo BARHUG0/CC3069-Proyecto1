@@ -1,6 +1,9 @@
 *.exe
 *.o
 screensaver
+screensaver_parallel
+deathstar_test
+systems_test
 .DS_Store
 .tokensave/
 

@@ -19,16 +19,6 @@
 #include "spawn.h"
 #include "systems.h"
 
-#ifdef PARALLEL_SYSTEMS
-#define SYSTEMS_MODE "parallel"
-#define SYSTEMS_THREADS() sys_parallel_threads()
-#define active_sys_update sys_update_parallel
-#else
-#define SYSTEMS_MODE "sequential"
-#define SYSTEMS_THREADS() 1
-#define active_sys_update sys_update
-#endif
-
 #define DEFAULT_WIDTH  1280
 #define DEFAULT_HEIGHT  720
 #define DEFAULT_STARS  1200
@@ -57,6 +47,7 @@ typedef struct Config {
     int          deadstarStatic;
     int          targetFps;
     int          benchmark;
+    int          parallel;   /* 0 = sys_update, 1 = sys_update_parallel */
 } Config;
 
 static void print_usage(const char *exe)
@@ -77,6 +68,8 @@ static void print_usage(const char *exe)
     printf("  --deadstar         Estrella de la Muerte controlable con WASD y Space\n");
     printf("  --deadstar-static  mostrar la Estrella de la Muerte sin animarla\n");
     printf("  --target-fps F     limitar la ejecucion a F FPS con raylib\n");
+    printf("  --parallel         actualizar los sistemas con OpenMP (varios hilos)\n");
+    printf("  --sequential       actualizar los sistemas en un solo hilo (por defecto)\n");
     printf("  --benchmark        medir FPS durante 10 s tras 3 s de calentamiento\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
@@ -121,6 +114,7 @@ static int parse_args(int argc, char **argv, Config *cfg)
     cfg->deadstarStatic = 0;
     cfg->targetFps  = 0;
     cfg->benchmark  = 0;
+    cfg->parallel   = 0;
 
     for (int i = 1; i < argc; ++i) {
         const char *a = argv[i];
@@ -161,6 +155,10 @@ static int parse_args(int argc, char **argv, Config *cfg)
         } else if (strcmp(a, "--target-fps") == 0) {
             if (!parse_long(argc, argv, &i, a, &v)) return 1;
             cfg->targetFps = (int)v;
+        } else if (strcmp(a, "--parallel") == 0) {
+            cfg->parallel = 1;
+        } else if (strcmp(a, "--sequential") == 0) {
+            cfg->parallel = 0;
         } else if (strcmp(a, "--benchmark") == 0) {
             cfg->benchmark = 1;
         } else if (strcmp(a, "--screenshot") == 0) {
@@ -464,7 +462,9 @@ int main(int argc, char **argv)
                 deathstar_update(&deathstar, world, ss, tb, &rng, cfg.systems,
                                  (float)curW, (float)curH, dt);
             }
-            sf.liveStars -= active_sys_update(world, tb, simTime, dt);
+            sf.liveStars -= cfg.parallel
+                ? sys_update_parallel(world, tb, simTime, dt)
+                : sys_update(world, tb, simTime, dt);
 
             updateAccum += GetTime() - t0;
             updatedFrames++;
@@ -547,8 +547,10 @@ int main(int argc, char **argv)
         const double averageUpdateMs = (updatedFrames > 0)
             ? updateAccum * 1000.0 / (double)updatedFrames
             : 0.0;
+        const char *systemsMode = cfg.parallel ? "parallel" : "sequential";
+        const int   systemsThreads = cfg.parallel ? sys_parallel_threads() : 1;
         printf("\n--- resumen ---\n");
-        printf("Version            : %s (%d hilo(s))\n", SYSTEMS_MODE, SYSTEMS_THREADS());
+        printf("Version            : %s (%d hilo(s))\n", systemsMode, systemsThreads);
         printf("Fotogramas        : %ld en %.2f s  (%.1f FPS medio)\n",
                frame, elapsed, (double)frame / elapsed);
         if (updatedFrames > 0) {
@@ -573,7 +575,7 @@ int main(int argc, char **argv)
             printf("GetFPS            : %.2f FPS medio, minimo %d\n",
                    getFpsAverage, benchmarkMin);
             printf("BENCHMARK_CSV,%s,%d,%u,%d,%d,%d,%d,%.6f,%ld,%.3f,%.3f,%.3f,%d,%d,%.6f\n",
-                   SYSTEMS_MODE, SYSTEMS_THREADS(), seed,
+                   systemsMode, systemsThreads, seed,
                    cfg.systems, cfg.stars, cfg.width, cfg.height,
                    benchmarkElapsed, benchmarkFrames, averageFps,
                    benchmarkSecondMin, getFpsAverage, benchmarkMin,
