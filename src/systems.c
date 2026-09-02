@@ -27,7 +27,8 @@ static unsigned char alpha8(float a)
     return (unsigned char)v;
 }
 
-void starfield_init(StarField *sf, int targetStars, float screenW, float screenH)
+void starfield_init(World *w, StarField *sf, Rng *rng,
+                    int targetStars, float screenW, float screenH)
 {
     sf->accumulator = 0.0f;
     sf->targetStars = targetStars;
@@ -35,10 +36,17 @@ void starfield_init(StarField *sf, int targetStars, float screenW, float screenH
     sf->screenW     = screenW;
     sf->screenH     = screenH;
 
-    /* Vida media de una estrella ~9 s, asi que para sostener targetStars vivas
-     * hay que reponer targetStars/9 por segundo. El tope de poblacion hace el
-     * resto: al alcanzarlo el sistema deja de crear. */
     sf->spawnRate = (float)targetStars / 9.0f;
+
+    for (int i = 0; i < targetStars; ++i) {
+        const Entity e = spawn_star(w, rng, screenW, screenH);
+        if (e == ECS_INVALID) {
+            break;
+        }
+        w->life[e] -= FADE_IN_SECS;
+        w->alpha[e] = w->twBase[e];
+        sf->liveStars++;
+    }
 }
 
 int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt)
@@ -118,9 +126,8 @@ static void drift_system(World *w, SolarSystems *ss, int s, float dt)
     if (a < 0.0f)       a += 6.2831853f;
     ss->orbAng[s] = a;
 
-    const int   anchorIdx = ss->anchor[s];
-    const float cx = ss->anchorX[anchorIdx] + ss->orbRad[s] * cosf(a);
-    const float cy = ss->anchorY[anchorIdx] + ss->orbRad[s] * sinf(a);
+    const float cx = ss->homeX[s] + ss->orbRad[s] * cosf(a);
+    const float cy = ss->homeY[s] + ss->orbRad[s] * sinf(a);
 
     ss->cx[s] = cx;
     ss->cy[s] = cy;
@@ -465,11 +472,7 @@ static void render_rings(const SolarSystems *ss)
  *
  * ponytail: sin techo de segmentos por frame (bodyCount*TRAIL_LEN, ~196k en
  * el peor caso de N=256 sistemas llenos). Con N tipico (<=20) sobra margen;
- * si un N muy alto lo nota, saltar a dibujar 1 de cada 2 rebanadas.
- *
- * Sin guard de costura: los sistemas orbitan un anclaje fijo (sys_drift), ya
- * no hay teletransporte en los bordes, asi que cada segmento consecutivo es
- * siempre un paso corto real. */
+ * si un N muy alto lo nota, saltar a dibujar 1 de cada 2 rebanadas. */
 static void render_trails(const TrailBuffer *tb)
 {
     if (tb->fill < 2) {

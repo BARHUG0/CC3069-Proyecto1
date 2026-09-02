@@ -49,7 +49,7 @@ screensaver N [opciones]
 
 | Opción | Descripción |
 |---|---|
-| `--stars M` | estrellas de fondo simultáneas |
+| `--stars M` | estrellas de fondo simultáneas, 1200 por defecto |
 | `--width W` / `--height H` | tamaño de ventana |
 | `--seed S` | semilla del generador (default: reloj) |
 | `--fullscreen` | pantalla completa sin borde |

@@ -1,109 +1,26 @@
-# Estado del proyecto (para retomar en otra sesión)
+# Estado del proyecto
 
-Última revisión: 2026-08-28. Build limpio (`make`, cero warnings con
-`-Wall -Wextra -Wpedantic`). La posición de cada sistema ya no depende de su
-ancla (ver "El diseño de anclas" abajo) y hay una modalidad nueva,
-`--deadstar` (ver esa sección más abajo, **ya en su v10**: el ojo gira
-pegado al cuerpo, hundido con un bisel de socket, se frena y dispara DOS
-veces por vuelta — apenas aparece, izquierda, y al cruzar el frente exacto,
-derecha — a un punto lejos del centro, la estación es más chica que antes,
-el casco es más oscuro con más luces de varios tonos, y las explosiones son
-más vívidas/largas, escalan/atenúan por la capa de profundidad del sistema
-destruido, y ya no se ven como tres círculos concéntricos (una sola onda
-sutil + una bola de fuego irregular, no un nucleo circular perfecto); no
-lleva `SECS`). Además, en
-una vuelta aparte: paletas más vívidas, planetas teñidos por la calidez de
-su sol, y sistemas solares con capas de profundidad fijas (tamaño/brillo
-por capa, ya bien marcadas tras un retune — el núcleo del sol también se
-atenúa ahora) — ver "Colores vívidos + ... + capas de profundidad" más
-abajo. **Nota**: los nuevos sorteos de RNG corren la secuencia — cualquier
-`--seed` de antes de esta sesión produce una escena distinta ahora, no es
-una regresión.
+Última revisión: 2026-09-01.
 
-Historial de esta sesión: se retomó con el v4 implementado pero sin
-committear, y con dos `fprintf(stderr, "DBG ...")` de depuración sueltos en
-`deathstar_update` (más un `g_dbgFrame` global en `main.c` solo para
-alimentarlos) — se detectaron y quitaron antes de commitear, confirmando
-primero con capturas que el disparo por rotación funciona sin ellos. Sobre
-ese commit, el usuario pidió 4 ajustes de sensación (ver v5 abajo): ojo
-encajado en vez de flotando, transición suave al dar la vuelta en vez de
-pop, más lento cerca del frente, y disparos más lejos de la estación.
+Screensaver en C11 y raylib con un campo de estrellas, sistemas solares y una
+modalidad opcional `--deadstar`. La arquitectura ECS mantiene versiones
+secuencial y OpenMP equivalentes.
 
-## Qué es
+## Apariencia y movimiento actuales
 
-Screensaver en C11 + raylib: campo de estrellas de fondo + N sistemas
-solares, arquitectura ECS orientada a datos (SoA, ver `src/ecs.h`). Ver
-`README.md` para instalar/compilar en macOS y Windows.
+- La escena crea toda la población solicitada de estrellas antes del primer
+  fotograma. El valor predeterminado volvió a 1200.
+- Cada sistema solar ocupa una celda de la rejilla y deriva en una órbita local
+  pequeña alrededor del centro de esa celda.
+- La órbita local conserva completo el sistema dentro de la ventana. Los
+  sistemas ya no desaparecen por los bordes.
+- Las cuatro capas de profundidad se conservan para el orden de pintado, con
+  variaciones leves de tamaño y brillo entre `0.85..1.0` y `0.75..1.0`.
+- El fondo sigue siendo negro puro. Las estrellas usan tonos fríos y los soles
+  tonos cálidos.
 
-## Arquitectura actual del movimiento (la parte que más cambió)
-
-Hay dos niveles de órbita, con el mismo modelo matemático (ángulo + radio +
-velocidad angular alrededor de un centro fijo) aplicado en cada nivel:
-
-1. **Planeta alrededor de su sol** — sin cambios desde el inicio.
-   `sys_orbit` (`src/systems.c`), usa `ocx/ocy/orx/ory/oang/ospd` por
-   entidad en el `World`.
-2. **Sistema completo alrededor de un "ancla" de pantalla** — `sys_drift`
-   (`src/systems.c`), usa `orbRad/orbAng/orbSpd` por sistema en
-   `SolarSystems` (`src/spawn.h`).
-
-### El diseño de anclas, tal como quedó (importante para no repetir vueltas)
-
-- **Dos anclas fijas**, una en el centro de cada mitad de pantalla:
-  `anchorX[0]=W*0.25, anchorY[0]=H*0.5` (izquierda) y
-  `anchorX[1]=W*0.75, anchorY[1]=H*0.5` (derecha). `src/spawn.c:165-169`.
-- La **posición** de cada sistema se decide primero e independiente del
-  ancla: rejilla (`cols/rows/cellW/cellH`, ya calculada para separar
-  sistemas) + jitter. `src/spawn.c:204-210`.
-- La **asignación de ancla** es un reparto barajado (Fisher-Yates sobre un
-  arreglo `n/2`/`n/2`, no un volado independiente por sistema — con N chico
-  los volados independientes pueden caer muy desparejos por azar, un log
-  real dio 3 contra 9). `src/spawn.c:185-202`.
-- El **radio y ángulo de órbita** salen de la geometría real entre la
-  posición sorteada y el ancla sorteada (`dx,dy` → `sqrtf`/`atan2f`,
-  `src/spawn.c:212-217`). Por eso un sistema nacido en una mitad **sí puede**
-  terminar orbitando el ancla de la otra y cruzar la línea media — es
-  exactamente el comportamiento pedido por el usuario. Ya no hay tope de
-  radio por ancla (el bloque `reach`/`anchorMinR`/`anchorMaxR` se eliminó).
-- Consecuencia aceptada explícitamente por el usuario: un sistema con ancla
-  lejana tiene radio de órbita grande y puede pasar temporadas fuera de
-  pantalla (desaparece por el borde y vuelve). No es un bug.
-- Velocidad angular ya **no** es un rad/s fijo (con radios que ahora varían
-  mucho, ~0 a ~1000px, un rad/s fijo mandaría los sistemas de radio grande a
-  volar). Se deriva de una velocidad lineal fija (`rng_range(rng, 25, 70)`
-  px/s) dividida entre el radio, acotada a `[0.03, 0.5]` rad/s con signo
-  aleatorio. `src/spawn.c:219-223`.
-
-### Decisiones ya tomadas (no re-litigar sin que el usuario lo pida)
-
-Por si otra sesión (u otro agente) lee un mensaje de usuario ambiguo
-parecido y tiene la tentación de "mejorar" esto de nuevo — ya se dio esta
-vuelta completa:
-
-1. Se probó un modelo de **ancla central única** (un solo punto en el medio
-   de la pantalla) para que los sistemas cruzaran ambas mitades. El usuario
-   lo rechazó explícitamente: quiere exactamente dos orígenes fijos, uno por
-   mitad. **Actualización 2026-08-25**: sí se quiere que el sistema pueda
-   verse en una mitad mientras orbita el ancla de la otra (la posición ya no
-   depende del ancla asignada, ver arriba) — lo que el usuario rechazó fue el
-   ancla única, no el cruce de mitades. Aceptado a propósito: con ancla
-   lejana el radio de órbita puede sacar al sistema de pantalla por momentos.
-2. Se probó un **volado independiente por sistema** (`rng_below(rng,2)`).
-   Es correcto (la posición no influye en la elección, verificado con logs),
-   pero el usuario lo rechazó porque el split puede verse desparejo por
-   azar. Se reemplazó por el reparto barajado descrito arriba.
-3. Ya se ajustó varias veces la duración de la estela (`TRAIL_LEN` en
-   `src/systems.h`, hoy en 120 ≈ 5s a `TRAIL_HZ=24`) y la velocidad angular
-   — quedaron en los valores de arriba tras ida y vuelta explícita del
-   usuario. Si se pide "más rápido/lento" o "más grande/chica la estela" de
-   nuevo, es un ajuste de constante, no un rediseño.
-4. El fondo es negro puro (`BLACK` de raylib, `src/main.c:308`) — no volver
-   a un tinte de color.
-5. Paletas de color separadas a propósito: estrellas de fondo = fría
-   (blanco/azul), soles = cálida (amarillo/naranja/rojo) — para que no se
-   confundan visualmente (`src/spawn.c:5-31`).
-6. `DrawFPS()` nativo de raylib, siempre visible arriba-centro, independiente
-   del toggle de HUD (`src/main.c`, busca `DrawFPS`).
+Las secciones siguientes documentan la evolución histórica de la modalidad
+`--deadstar` y otros subsistemas.
 
 ## Modalidad `--deadstar`
 

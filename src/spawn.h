@@ -31,14 +31,14 @@ static inline float solar_layer_scale(int layer)
 {
     if (SYS_LAYER_COUNT <= 1) return 1.0f;
     const float t = (float)layer / (float)(SYS_LAYER_COUNT - 1);
-    return 0.45f + 0.55f * t;
+    return 0.85f + 0.15f * t;
 }
 
 static inline float solar_layer_alpha(int layer)
 {
     if (SYS_LAYER_COUNT <= 1) return 1.0f;
     const float t = (float)layer / (float)(SYS_LAYER_COUNT - 1);
-    return 0.20f + 0.80f * t;
+    return 0.75f + 0.25f * t;
 }
 
 /* Datos de los sistemas solares, tambien en SoA.
@@ -67,29 +67,12 @@ typedef struct SolarSystems {
 
     int totalPlanets;
 
-    /* --- deriva: dos anclas fijas, una por mitad de pantalla, con el mismo
-     * modelo (angulo + radio + velocidad angular) que ya usan los planetas
-     * alrededor de su sol, aplicado un nivel arriba. La posicion de cada
-     * sistema se decide primero (rejilla + jitter, independiente del ancla);
-     * que ancla le toca se decide aparte con un reparto barajado (mitad y
-     * mitad, orden al azar via Fisher-Yates — no un volado independiente por
-     * sistema, que con N chico puede caer muy desparejo por puro azar). El
-     * radio/angulo de orbita salen de la geometria real entre posicion y
-     * ancla sorteada, asi que un sistema nacido en una mitad puede terminar
-     * orbitando el ancla de la otra y cruzarla — es el comportamiento pedido,
-     * no un defecto. Consecuencia aceptada: un sistema con ancla lejana tiene
-     * radio grande y puede salirse de pantalla por momentos. */
-    float anchorX[2];
-    float anchorY[2];
-    int   anchor[MAX_SYSTEMS];  /* 0 o 1: que ancla le toca, al azar    */
-    float orbRad[MAX_SYSTEMS];  /* radio de orbita alrededor del ancla */
-    float orbAng[MAX_SYSTEMS];  /* angulo actual (rad)                 */
-    float orbSpd[MAX_SYSTEMS];  /* velocidad angular (rad/s), con signo */
+    float homeX[MAX_SYSTEMS];
+    float homeY[MAX_SYSTEMS];
+    float orbRad[MAX_SYSTEMS];
+    float orbAng[MAX_SYSTEMS];
+    float orbSpd[MAX_SYSTEMS];
 
-    /* Capa de profundidad, ver SYS_LAYER_COUNT arriba. IMPORTANTE: como
-     * anchor/orbRad/orbAng/orbSpd de arriba, debe copiarse en el
-     * swap-remove de solar_system_remove (spawn.c) o queda desactualizada
-     * tras un impacto de la Estrella de la Muerte. */
     int layer[MAX_SYSTEMS];
 
     /* Layout de rejilla de spawn_solar_systems, guardado para que
@@ -98,24 +81,16 @@ typedef struct SolarSystems {
      * arranque, sin recalcular ni duplicar constantes. */
     int   gridCols, gridRows;
     float cellW, cellH, cellR;
-    float sunRad, planetRef, jitter;
+    float sunRad, planetRef, driftMax;
 } SolarSystems;
 
 /* Crea una estrella de fondo efimera (C_POS|C_RENDER|C_TWINKLE|C_LIFE).
  * Devuelve ECS_INVALID si el mundo esta lleno. */
 Entity spawn_star(World *w, Rng *rng, float screenW, float screenH);
 
-/* Coloca n sistemas solares en una rejilla con jitter y crea sol + planetas.
- * Sobreescribe por completo el contenido de ss. */
 void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
                          int n, float screenW, float screenH);
 
-/* Hace nacer un sistema mas al final de ss (ss->count++), reusando el layout
- * de rejilla guardado por spawn_solar_systems. Celda al azar (solaparse con
- * un sistema vivo es aceptado, igual que en el spawn inicial) y ancla = la
- * que tenga menos sistemas ahora mismo (empate = volado), para no romper el
- * balance 50/50 sin volver a un volado independiente por sistema. Devuelve el
- * indice del sistema nuevo, o -1 si ss o el World ya estan llenos. */
 int spawn_one_system(World *w, SolarSystems *ss, Rng *rng);
 
 /* Destruye el sol y los planetas del sistema s (ecs_destroy), compacta la

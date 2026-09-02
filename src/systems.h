@@ -17,16 +17,6 @@
  * centro ya actualizado del fotograma. sys_trails va despues de sys_orbit:
  * muestrea las posiciones ya definitivas del fotograma.
  *
- * sys_drift usa el mismo modelo que sys_orbit (angulo + radio + velocidad
- * angular alrededor de un centro fijo), aplicado un nivel arriba: en vez del
- * centro de un planeta orbitando su sol, es el centro de un sistema entero
- * orbitando una de las dos anclas compartidas en ss->anchorX/Y (que ancla le
- * toca a cada sistema se decide al azar en el spawn, ss->anchor[s], ver
- * spawn.h, independiente de donde nacio el sistema). El radio de orbita sale
- * de la geometria real hacia esa ancla, asi que puede ser grande y el
- * sistema puede pasar temporadas fuera de pantalla; no hay guard de bordes
- * porque es un caso aceptado, no un bug.
- *
  * sys_render (systems.c) dibuja en 3 pasadas: aditiva (resplandor solar,
  * atenuado por capa) -> OPACA por capa/sistema (nucleo del sol + planetas —
  * la unica pasada donde el orden de dibujo importa de verdad, porque las
@@ -56,16 +46,13 @@ typedef struct StarField {
     float screenH;
 } StarField;
 
-void starfield_init(StarField *sf, int targetStars, float screenW, float screenH);
+void starfield_init(World *w, StarField *sf, Rng *rng,
+                    int targetStars, float screenW, float screenH);
 
 /* Crea estrellas hasta acercarse a targetStars. Devuelve cuantas creo. */
 int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt);
 int sys_spawn_stars_parallel(World *w, StarField *sf, Rng *rng, float dt);
 
-/* Hace girar cada sistema solar alrededor de su anclaje (ss->anchorX/Y[a]) y
- * propaga el nuevo centro a px/py del sol, ocx/ocy de sus planetas y los
- * centros de anillo: todo lo que depende del centro del sistema queda al dia
- * antes de que sys_orbit reproyecte. */
 void sys_drift(World *w, SolarSystems *ss, float dt);
 void sys_drift_parallel(World *w, SolarSystems *ss, float dt);
 

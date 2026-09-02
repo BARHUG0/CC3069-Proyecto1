@@ -44,7 +44,7 @@
 
 #define DEFAULT_WIDTH  1280
 #define DEFAULT_HEIGHT  720
-#define DEFAULT_STARS   500
+#define DEFAULT_STARS  1200
 #define BENCHMARK_WARMUP_SECS 3.0
 #define BENCHMARK_DURATION_SECS 10.0
 #define BENCHMARK_SAMPLES 10
@@ -246,7 +246,7 @@ static void build_scene(World *w, SolarSystems *ss, StarField *sf, TrailBuffer *
 {
     ecs_reset(w);
     spawn_solar_systems(w, ss, rng, cfg->systems, (float)screenW, (float)screenH);
-    starfield_init(sf, cfg->stars, (float)screenW, (float)screenH);
+    starfield_init(w, sf, rng, cfg->stars, (float)screenW, (float)screenH);
     trails_init(tb, w, ss);
 }
 
@@ -415,8 +415,6 @@ int main(int argc, char **argv)
     long   updatedFrames = 0; /* los fotogramas en pausa no cuentan en la media */
     const double wallStart = GetTime();
 
-    /* Capturar tras un rato: con 0 fotogramas de calentamiento el cielo aun
-     * esta casi vacio y la captura no muestra nada. */
     long captureAt = (cfg.frames > 0) ? (cfg.frames - 1) : 150;
     if (captureAt < 1) {
         captureAt = 1; /* frame se compara despues de incrementarse, nunca vale 0 */
