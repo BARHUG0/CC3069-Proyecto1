@@ -441,7 +441,7 @@ static void render_starfield(const World *w)
 }
 
 /* Por sistema (no un escaneo plano de ringTotal): asi el alpha del anillo
- * puede atenuarse por la capa de profundidad de SU sistema. */
+ * puede atenuarse por la profundidad de SU sistema. */
 static void render_rings(const SolarSystems *ss)
 {
     for (int s = 0; s < ss->count; ++s) {
@@ -567,9 +567,9 @@ static void render_trails(const TrailBuffer *tb)
     EndBlendMode();
 }
 
-/* Resplandor aditivo de cada sol, atenuado por la capa de profundidad de su
+/* Resplandor aditivo de cada sol, atenuado por la profundidad de su
  * sistema (los tres literales de alpha; el nucleo opaco se atenua aparte,
- * en render_bodies mas abajo). Global/sin ordenar por capa: aditivo
+ * en render_bodies mas abajo). Global/sin ordenar: aditivo
  * conmuta, no hace falta el orden atras->adelante que si necesita el pase
  * opaco de abajo. */
 static void render_sun_glow(const World *w, const SolarSystems *ss)
@@ -645,8 +645,8 @@ static void render_bodies(const World *w, const SolarSystems *ss)
     }
 }
 
-/* Reflejo especular de cada planeta, atenuado por capa igual que su cuerpo
- * (render_bodies). Global/sin ordenar por capa por el mismo motivo que
+/* Reflejo especular de cada planeta, atenuado por profundidad igual que su
+ * cuerpo (render_bodies). Global/sin ordenar por el mismo motivo que
  * render_sun_glow: aditivo, conmuta. */
 static void render_specular(const World *w, const SolarSystems *ss)
 {

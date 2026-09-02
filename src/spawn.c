@@ -197,7 +197,7 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
     /* Velocidad angular derivada de una velocidad lineal fija (~25-70 px/s),
      * no un rad/s fijo: con radios que varian mucho (~0 a ~1000px), un rad/s
      * fijo haria que los sistemas de radio grande volaran por la pantalla.
-     * Escalada por capa (sc): los sistemas de atras tambien derivan mas
+     * Escalada por profundidad (sc): los sistemas de atras tambien derivan mas
      * lento, otra pista barata de distancia. */
     const float v = rng_range(rng, 25.0f, 70.0f) * sc;
     float ospd = (radius > 1.0f) ? v / radius : 0.3f;
@@ -211,7 +211,7 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
     ss->cy[s]        = cy;
     ss->ringFirst[s] = ss->ringTotal;
 
-    /* Copias locales escaladas por capa — ver el comentario de la funcion. */
+    /* Copias locales escaladas por profundidad — ver el comentario de la funcion. */
     const float cellRs  = ss->cellR * sc;
     const float sunRadS = ss->sunRad * sc;
     const float prRef   = ss->planetRef * sc;
@@ -239,7 +239,7 @@ static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
         }
 
         /* Radios escalonados de 0.26 a 1.0 del radio de celda (ya escalado
-         * por capa). */
+         * por profundidad). */
         const float frac = 0.26f + 0.74f * ((float)(i + 1) / (float)planets)
                                  + rng_range(rng, -0.025f, 0.025f);
         float rx = cellRs * frac;
