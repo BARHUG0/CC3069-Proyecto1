@@ -23,6 +23,12 @@ param(
 
     [string]$MakeCommand = "mingw32-make",
 
+    [ValidateSet("sequential", "parallel")]
+    [string]$Version = "sequential",
+
+    [ValidateRange(0, 256)]
+    [int]$Threads = 0,
+
     [string]$OutputDirectory = "benchmark-results",
 
     [string]$ResumeRunsFile
@@ -30,10 +36,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$executable = Join-Path $projectRoot "screensaver.exe"
+$executableName = if ($Version -eq "parallel") {
+    "screensaver_parallel.exe"
+} else {
+    "screensaver.exe"
+}
+$executable = Join-Path $projectRoot $executableName
 $resultsPath = Join-Path $projectRoot $OutputDirectory
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $TargetFpsValues = @($TargetFpsValues | Sort-Object -Unique)
+$previousOmpThreads = $env:OMP_NUM_THREADS
+if ($Version -eq "parallel" -and $Threads -gt 0) {
+    $env:OMP_NUM_THREADS = "$Threads"
+}
 
 function Invoke-CheckedCommand {
     param(
@@ -52,7 +67,7 @@ function Invoke-CheckedCommand {
 
 Push-Location $projectRoot
 try {
-    Invoke-CheckedCommand -Command $MakeCommand | Out-Host
+    Invoke-CheckedCommand -Command $MakeCommand -Arguments @($Version) | Out-Host
 
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "No se encontro el ejecutable compilado: $executable"
@@ -129,7 +144,13 @@ try {
         $variance = ($fps | ForEach-Object { [math]::Pow($_ - $mean, 2) } |
             Measure-Object -Average).Average
         $measurement = [pscustomobject]@{
+            Version = "$($systemRows[0].Version)"
+            Threads = [int]$systemRows[0].Threads
             Systems = $Systems
+            Stars = [int]$systemRows[0].Stars
+            Width = [int]$systemRows[0].Width
+            Height = [int]$systemRows[0].Height
+            Seed = [uint32]$systemRows[0].Seed
             Runs = $systemRows.Count
             MeanFps = [math]::Round($mean, 3)
             MedianFps = [math]::Round($median, 3)
@@ -180,16 +201,16 @@ try {
             }
 
             $fields = $benchmarkLines[0] -split ","
-            if ($fields.Count -ne 13) {
+            if ($fields.Count -ne 15) {
                 throw "La corrida $run con $Systems sistemas produjo una linea BENCHMARK_CSV invalida."
             }
-            if ([int]$fields[12] -ne 10) {
-                Write-Warning "La corrida $run con $Systems sistemas produjo $($fields[12]) intervalos; se repetira."
+            if ([int]$fields[14] -ne 10) {
+                Write-Warning "La corrida $run con $Systems sistemas produjo $($fields[14]) intervalos; se repetira."
                 continue
             }
 
             $oneSecondMinFps = [double]::Parse(
-                $fields[9], [Globalization.CultureInfo]::InvariantCulture)
+                $fields[11], [Globalization.CultureInfo]::InvariantCulture)
             $rows.Add([pscustomobject]@{
                 Run = $run
                 Timestamp = (Get-Date).ToString("o")
@@ -200,18 +221,20 @@ try {
                 OperatingSystem = $os
                 PowerPlan = $powerPlan
                 Gcc = $gcc
-                Seed = [uint32]$fields[1]
-                Systems = [int]$fields[2]
-                Stars = [int]$fields[3]
-                Width = [int]$fields[4]
-                Height = [int]$fields[5]
-                Seconds = [double]::Parse($fields[6], [Globalization.CultureInfo]::InvariantCulture)
-                Frames = [long]$fields[7]
-                AverageFps = [double]::Parse($fields[8], [Globalization.CultureInfo]::InvariantCulture)
+                Version = $fields[1]
+                Threads = [int]$fields[2]
+                Seed = [uint32]$fields[3]
+                Systems = [int]$fields[4]
+                Stars = [int]$fields[5]
+                Width = [int]$fields[6]
+                Height = [int]$fields[7]
+                Seconds = [double]::Parse($fields[8], [Globalization.CultureInfo]::InvariantCulture)
+                Frames = [long]$fields[9]
+                AverageFps = [double]::Parse($fields[10], [Globalization.CultureInfo]::InvariantCulture)
                 OneSecondMinFps = $oneSecondMinFps
-                GetFpsAverage = [double]::Parse($fields[10], [Globalization.CultureInfo]::InvariantCulture)
-                GetFpsMin = [int]$fields[11]
-                Samples = [int]$fields[12]
+                GetFpsAverage = [double]::Parse($fields[12], [Globalization.CultureInfo]::InvariantCulture)
+                GetFpsMin = [int]$fields[13]
+                Samples = [int]$fields[14]
             })
             $acceptedRuns++
         }
@@ -220,7 +243,10 @@ try {
         return Update-Measurement -Systems $Systems
     }
 
-    foreach ($systems in @($rows.Systems | ForEach-Object { [int]$_ } | Sort-Object -Unique)) {
+    foreach ($systems in @($rows |
+        ForEach-Object { [int]$_.Systems } |
+        Where-Object { $_ -ge 1 } |
+        Sort-Object -Unique)) {
         Update-Measurement -Systems $systems | Out-Null
     }
 
@@ -257,6 +283,12 @@ try {
             }
 
             [pscustomobject]@{
+                Version = $Version
+                Threads = if ($Version -eq "parallel") {
+                    $maximum.Threads
+                } else {
+                    1
+                }
                 TargetFps = $targetFps
                 MaxStableSystems = $low
                 Stars = $Stars
@@ -293,7 +325,9 @@ try {
     $stabilityRows = @(Find-StabilityPoints)
     $conflicts = @()
     foreach ($targetFps in $TargetFpsValues) {
-        $ordered = @($measurements.Values | Sort-Object Systems)
+        $ordered = @($measurements.Values |
+            Where-Object { [int]$_.Systems -ge 1 } |
+            Sort-Object Systems)
         for ($i = 0; $i -lt $ordered.Count; $i++) {
             for ($j = $i + 1; $j -lt $ordered.Count; $j++) {
                 if ($ordered[$i].WorstOneSecondFps -lt $targetFps -and
@@ -306,7 +340,9 @@ try {
     }
 
     if ($conflicts.Count -gt 0) {
-        $conflicts = @($conflicts | Sort-Object -Unique)
+        $conflicts = @($conflicts |
+            Where-Object { [int]$_ -ge 1 } |
+            Sort-Object -Unique)
         Write-Host "Repitiendo puntos con resultados no monotonicos: $($conflicts -join ', ')"
         foreach ($systems in $conflicts) {
             Measure-Systems -Systems $systems -AdditionalRuns | Out-Null
@@ -316,8 +352,13 @@ try {
 
     $summaryRows = @($measurements.Values | Sort-Object Systems | ForEach-Object {
         [pscustomobject]@{
+            Version = $_.Version
+            Threads = $_.Threads
             Systems = $_.Systems
-            Stars = $Stars
+            Stars = $_.Stars
+            Width = $_.Width
+            Height = $_.Height
+            Seed = $_.Seed
             Runs = $_.Runs
             MeanFps = $_.MeanFps
             MedianFps = $_.MedianFps
@@ -338,4 +379,5 @@ try {
 }
 finally {
     Pop-Location
+    $env:OMP_NUM_THREADS = $previousOmpThreads
 }
