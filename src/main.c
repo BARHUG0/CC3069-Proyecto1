@@ -19,6 +19,29 @@
 #include "spawn.h"
 #include "systems.h"
 
+#ifdef PARALLEL_SYSTEMS
+#include <omp.h>
+#define SYSTEMS_MODE "parallel"
+#define SYSTEMS_THREADS() omp_get_max_threads()
+#define active_sys_spawn_stars sys_spawn_stars_parallel
+#define active_sys_drift sys_drift_parallel
+#define active_sys_twinkle sys_twinkle_parallel
+#define active_sys_orbit sys_orbit_parallel
+#define active_sys_trails sys_trails_parallel
+#define active_sys_lifetime sys_lifetime_parallel
+#define active_sys_render sys_render_parallel
+#else
+#define SYSTEMS_MODE "sequential"
+#define SYSTEMS_THREADS() 1
+#define active_sys_spawn_stars sys_spawn_stars
+#define active_sys_drift sys_drift
+#define active_sys_twinkle sys_twinkle
+#define active_sys_orbit sys_orbit
+#define active_sys_trails sys_trails
+#define active_sys_lifetime sys_lifetime
+#define active_sys_render sys_render
+#endif
+
 #define DEFAULT_WIDTH  1280
 #define DEFAULT_HEIGHT  720
 #define DEFAULT_STARS   500
@@ -444,8 +467,8 @@ int main(int argc, char **argv)
             const double t0 = GetTime();
 
             simTime += dt;
-            sys_spawn_stars(world, &sf, &rng, dt);
-            sys_drift(world, ss, dt);
+            active_sys_spawn_stars(world, &sf, &rng, dt);
+            active_sys_drift(world, ss, dt);
             if (cfg.deadstar) {
                 const float moveX = (float)IsKeyDown(KEY_D) - (float)IsKeyDown(KEY_A);
                 const float moveY = (float)IsKeyDown(KEY_S) - (float)IsKeyDown(KEY_W);
@@ -456,10 +479,10 @@ int main(int argc, char **argv)
                 deathstar_update(&deathstar, world, ss, tb, &rng, cfg.systems,
                                  (float)curW, (float)curH, dt);
             }
-            sys_twinkle(world, simTime);
-            sys_orbit(world, dt);
-            sys_trails(world, tb, dt);
-            sf.liveStars -= sys_lifetime(world, dt);
+            active_sys_twinkle(world, simTime);
+            active_sys_orbit(world, dt);
+            active_sys_trails(world, tb, dt);
+            sf.liveStars -= active_sys_lifetime(world, dt);
 
             updateAccum += GetTime() - t0;
             updatedFrames++;
@@ -467,7 +490,7 @@ int main(int argc, char **argv)
 
         BeginDrawing();
         ClearBackground(bg);
-        sys_render(world, ss, tb, showRings, showTrails);
+        active_sys_render(world, ss, tb, showRings, showTrails);
         if (cfg.deadstar) {
             deathstar_render(&deathstar, curW, curH);
         }
@@ -537,6 +560,7 @@ int main(int argc, char **argv)
 
     if (frame > 0 && elapsed > 0.0) {
         printf("\n--- resumen ---\n");
+        printf("Version            : %s (%d hilo(s))\n", SYSTEMS_MODE, SYSTEMS_THREADS());
         printf("Fotogramas        : %ld en %.2f s  (%.1f FPS medio)\n",
                frame, elapsed, (double)frame / elapsed);
         if (updatedFrames > 0) {
@@ -560,8 +584,9 @@ int main(int argc, char **argv)
                    benchmarkSecondMin, benchmarkCount);
             printf("GetFPS            : %.2f FPS medio, minimo %d\n",
                    getFpsAverage, benchmarkMin);
-            printf("BENCHMARK_CSV,%u,%d,%d,%d,%d,%.6f,%ld,%.3f,%.3f,%.3f,%d,%d\n",
-                   seed, cfg.systems, cfg.stars, cfg.width, cfg.height,
+            printf("BENCHMARK_CSV,%s,%d,%u,%d,%d,%d,%d,%.6f,%ld,%.3f,%.3f,%.3f,%d,%d\n",
+                   SYSTEMS_MODE, SYSTEMS_THREADS(), seed,
+                   cfg.systems, cfg.stars, cfg.width, cfg.height,
                    benchmarkElapsed, benchmarkFrames, averageFps,
                    benchmarkSecondMin, getFpsAverage, benchmarkMin,
                    benchmarkCount);
