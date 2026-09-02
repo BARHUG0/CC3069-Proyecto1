@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -42,6 +43,29 @@ static void assert_systems_orbit(const World *world, const SolarSystems *systems
     }
 }
 
+/* Cada sistema tiene su PROPIA profundidad en [0,1] — nadie la comparte.
+ * O(n^2), pero n <= MAX_SYSTEMS y solo en pruebas. */
+static void assert_depths_unique(const SolarSystems *systems)
+{
+    for (int a = 0; a < systems->count; ++a) {
+        assert(systems->depth[a] >= 0.0f && systems->depth[a] <= 1.0f);
+        for (int b = a + 1; b < systems->count; ++b) {
+            assert(systems->depth[a] != systems->depth[b]);
+        }
+    }
+}
+
+/* El reparto barajado mitad/mitad deja el conteo por ancla parejo. */
+static void assert_anchor_balanced(const SolarSystems *systems)
+{
+    int n0 = 0, n1 = 0;
+    for (int s = 0; s < systems->count; ++s) {
+        if (systems->anchor[s] == 0) n0++; else n1++;
+    }
+    const int gap = n0 > n1 ? n0 - n1 : n1 - n0;
+    assert(gap <= 1);
+}
+
 static void assert_layout_bounds(World *world, SolarSystems *systems)
 {
     static const int counts[] = { 1, 6, 64, 256 };
@@ -57,8 +81,62 @@ static void assert_layout_bounds(World *world, SolarSystems *systems)
             spawn_solar_systems(world, systems, &rng, counts[count],
                                 widths[size], heights[size]);
             assert_systems_orbit(world, systems);
+            assert_depths_unique(systems);
+            assert_anchor_balanced(systems);
         }
     }
+}
+
+/* Regresion del bug de la deriva: tras la reescritura "optimizacion" los
+ * sistemas solo temblaban en su celda. Con el modelo de anclas restaurado,
+ * en ~2 s de simulacion al menos un sistema debe recorrer una distancia
+ * clara (el centro cx/cy, no un planeta). */
+static void assert_drift_visible(World *world, SolarSystems *systems)
+{
+    Rng rng;
+    rng_seed(&rng, 20260901u);
+    ecs_reset(world);
+    memset(systems, 0, sizeof(*systems));
+    spawn_solar_systems(world, systems, &rng, 12, 1280.0f, 720.0f);
+
+    float x0[MAX_SYSTEMS], y0[MAX_SYSTEMS];
+    for (int s = 0; s < systems->count; ++s) {
+        x0[s] = systems->cx[s];
+        y0[s] = systems->cy[s];
+    }
+
+    for (int step = 0; step < 120; ++step) {
+        sys_drift(world, systems, 1.0f / 60.0f);
+    }
+
+    float maxMoved = 0.0f;
+    for (int s = 0; s < systems->count; ++s) {
+        const float dx = systems->cx[s] - x0[s];
+        const float dy = systems->cy[s] - y0[s];
+        const float moved = sqrtf(dx * dx + dy * dy);
+        if (moved > maxMoved) maxMoved = moved;
+    }
+    assert(maxMoved > 20.0f);
+}
+
+/* La profundidad sigue siendo unica tras varias muertes y renacimientos. */
+static void assert_depth_survives_churn(World *world, SolarSystems *systems)
+{
+    Rng rng;
+    rng_seed(&rng, 20260901u);
+    ecs_reset(world);
+    memset(systems, 0, sizeof(*systems));
+    spawn_solar_systems(world, systems, &rng, 20, 1280.0f, 720.0f);
+
+    for (int k = 0; k < 6; ++k) {
+        solar_system_remove(world, systems, systems->count / 2);
+    }
+    assert_depths_unique(systems);
+
+    for (int k = 0; k < 10; ++k) {
+        assert(spawn_one_system(world, systems, &rng) >= 0);
+    }
+    assert_depths_unique(systems);
 }
 
 int main(void)
@@ -150,6 +228,8 @@ int main(void)
     assert_worlds_equal(sequentialWorld, parallelWorld);
 
     assert_layout_bounds(sequentialWorld, sequentialSystems);
+    assert_drift_visible(sequentialWorld, sequentialSystems);
+    assert_depth_survives_churn(sequentialWorld, sequentialSystems);
 
     free(parallelTrails);
     free(sequentialTrails);
