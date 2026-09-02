@@ -6,7 +6,11 @@ Screensaver de campo de estrellas + N sistemas solares, en C11 con [raylib](http
 
 - gcc (o mingw-w64 en Windows) con soporte C11
 - `make`
-- raylib 5.x
+- raylib 5.x o 6.x
+- OpenMP (viene con gcc/mingw; en macOS es `libomp` de Homebrew)
+
+Se compila **un solo binario** `screensaver`, siempre con OpenMP. El modo se
+elige al ejecutar: `--sequential` (por defecto) o `--parallel`.
 
 ## Windows (MSYS2 UCRT64)
 
@@ -17,27 +21,27 @@ raylib va en `vendor/raylib`
    ```
    pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-make
    ```
-3. Compila las versiones secuencial y paralela desde la raíz del proyecto:
+3. Compila desde la raíz del proyecto:
    ```
    mingw32-make
    .\screensaver.exe 6
-   .\screensaver_parallel.exe 6
+   .\screensaver.exe 6 --parallel
    ```
 
 > El proyecto debe vivir en una ruta sin espacios; el `Makefile` usa rutas relativas por eso.
 
 ## macOS
 
-raylib **no** va vendorizado para macOS (`vendor/raylib` solo trae binarios de Windows); instálalo con Homebrew:
+raylib **no** va vendorizado para macOS (`vendor/raylib` solo trae binarios de Windows); instálalo con Homebrew junto con `libomp` (Apple clang no trae OpenMP):
 
 ```
-brew install raylib
+brew install raylib libomp
 make
 ./screensaver 6
-./screensaver_parallel 6
+./screensaver 6 --parallel
 ```
 
-El `Makefile` usa `pkg-config` para ubicar los headers/libs de raylib que instala Homebrew, así que `pkg-config` debe estar en el PATH (viene con Homebrew).
+El `Makefile` usa `pkg-config` para ubicar raylib y `brew --prefix libomp` para el runtime de OpenMP, así que Homebrew debe estar en el PATH.
 
 ## Uso
 
@@ -49,6 +53,8 @@ screensaver N [opciones]
 
 | Opción | Descripción |
 |---|---|
+| `--parallel` | actualizar los sistemas con OpenMP (varios hilos) |
+| `--sequential` | actualizar los sistemas en un solo hilo (por defecto) |
 | `--stars M` | estrellas de fondo simultáneas, 1200 por defecto |
 | `--width W` / `--height H` | tamaño de ventana |
 | `--seed S` | semilla del generador (default: reloj) |
@@ -151,14 +157,16 @@ pruebas en el equipo de referencia mostraron que 6 o 12 compiten con el hilo
 de render y reducen los FPS totales.
 
 Se eligió paralelismo de datos porque los sistemas recorren arreglos SoA y
-cada iteración actualiza una entidad independiente. Las dos versiones fusionan
-centelleo, órbitas y vida en un recorrido. OpenMP reparte ese mismo recorrido y,
-al terminar, realiza una única unión antes de que el hilo principal lea
-posiciones para las estelas y el render. No se usan mutexes, atómicos ni
-secciones críticas. La deriva, creación, destrucción y estelas permanecen
-seriales porque sus recorridos son pequeños o modifican estado global. Con
-menos de 6144 entidades, la versión paralela usa directamente el recorrido
-secuencial para evitar que el costo de OpenMP supere el trabajo.
+cada iteración actualiza una entidad independiente. El binario es único y
+siempre lleva OpenMP compilado: con `--sequential` (por defecto) el bucle de
+actualización corre en un hilo, con `--parallel` OpenMP reparte ese mismo
+recorrido —centelleo, órbitas y vida fusionados— y al terminar hace una única
+unión antes de que el hilo principal lea posiciones para las estelas y el
+render. No se usan mutexes, atómicos ni secciones críticas. La deriva,
+creación, destrucción y estelas permanecen seriales porque sus recorridos son
+pequeños o modifican estado global. Con menos de 6144 entidades, `--parallel`
+usa directamente el recorrido secuencial para evitar que el costo de OpenMP
+supere el trabajo.
 
 El render permanece en el hilo principal porque raylib y OpenGL no son
 reentrantes. Las estelas conservan todas sus 120 muestras y el mismo grosor,
@@ -175,10 +183,8 @@ temperatura y los procesos del sistema todavía pueden variar el rendimiento.
 ## Otros targets del Makefile
 
 ```
+make          # build del binario screensaver
 make run      # build + ./screensaver 6
-make run-parallel # build + ./screensaver_parallel 6
-make sequential   # solo la versión secuencial
-make parallel     # solo la versión OpenMP
-make test         # equivalencia secuencial/paralela
+make test     # equivalencia secuencial/paralela
 make clean    # borra objetos y el binario
 ```
