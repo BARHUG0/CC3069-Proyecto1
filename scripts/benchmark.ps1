@@ -43,12 +43,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$executableName = if ($Version -eq "parallel") {
-    "screensaver_parallel.exe"
-} else {
-    "screensaver.exe"
-}
-$executable = Join-Path $projectRoot $executableName
+# Un solo binario: el modo (secuencial/paralelo) se elige en tiempo de
+# ejecucion con --sequential / --parallel, no con dos ejecutables.
+$executable = Join-Path $projectRoot "screensaver.exe"
+$modeFlag = if ($Version -eq "parallel") { "--parallel" } else { "--sequential" }
 $resultsPath = Join-Path $projectRoot $OutputDirectory
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $TargetFpsValues = @($TargetFpsValues | Sort-Object -Unique)
@@ -75,7 +73,7 @@ function Invoke-CheckedCommand {
 
 Push-Location $projectRoot
 try {
-    Invoke-CheckedCommand -Command $MakeCommand -Arguments @($Version) | Out-Host
+    Invoke-CheckedCommand -Command $MakeCommand -Arguments @("all") | Out-Host
 
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
         throw "No se encontro el ejecutable compilado: $executable"
@@ -222,6 +220,7 @@ try {
                 "--seed", "$Seed",
                 "--width", "$Width",
                 "--height", "$Height",
+                $modeFlag,
                 "--no-vsync",
                 "--benchmark"
             )
