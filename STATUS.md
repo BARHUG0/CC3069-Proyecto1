@@ -1,21 +1,26 @@
 # Estado del proyecto
 
-Última revisión: 2026-09-01.
+Última revisión: 2026-09-02.
 
 Screensaver en C11 y raylib con un campo de estrellas, sistemas solares y una
-modalidad opcional `--deadstar`. La arquitectura ECS mantiene versiones
-secuencial y OpenMP equivalentes.
+modalidad opcional `--deadstar`. Se compila **un solo binario** `screensaver`,
+siempre con OpenMP; el bucle de actualización corre en un hilo con
+`--sequential` (por defecto) o repartido con OpenMP con `--parallel`. Las dos
+rutas son equivalentes (mismo resultado, verificado con `memcmp` del World en
+`tests/systems_test.c`).
 
 ## Apariencia y movimiento actuales
 
 - La escena crea toda la población solicitada de estrellas antes del primer
   fotograma. El valor predeterminado volvió a 1200.
-- Cada sistema solar ocupa una celda de la rejilla y deriva en una órbita local
-  pequeña alrededor del centro de esa celda.
-- La órbita local conserva completo el sistema dentro de la ventana. Los
-  sistemas ya no desaparecen por los bordes.
-- Las cuatro capas de profundidad se conservan para el orden de pintado, con
-  variaciones leves de tamaño y brillo entre `0.85..1.0` y `0.75..1.0`.
+- Cada sistema solar deriva alrededor de una de dos anclas fijas (una por
+  mitad de pantalla) con radio y ángulo reales hacia el ancla que le tocó y
+  velocidad lineal fija (~25–70 px/s). Un sistema puede barrer arcos amplios y
+  salirse del borde por momentos — es el comportamiento buscado.
+- Cada sistema tiene su **propia** profundidad única en `[0,1]` (no 4 capas
+  compartidas): tamaño en `0.45..1.0` y brillo en `0.20..1.0` según esa
+  profundidad. La pasada opaca ordena los sistemas de atrás hacia adelante por
+  profundidad, así el de más al frente siempre tapa al de atrás.
 - El fondo sigue siendo negro puro. Las estrellas usan tonos fríos y los soles
   tonos cálidos.
 
@@ -440,18 +445,21 @@ dos tablas — `templado`/`rocoso` caen en ambos rangos para que ningún
 sistema se vea monocromo. Motivo físico, no solo estético: la luz reflejada
 por un planeta está teñida por la de su sol.
 
-**Capas de profundidad** (`SYS_LAYER_COUNT=4`, `spawn.h`): cada sistema nace
-en una capa fija (0=atrás/chico/tenue, 3=adelante/tamaño y brillo
-completos), para que la distancia se vea SIEMPRE, no solo cuando dos
-sistemas se cruzan. Puntos importantes si se retoca:
+**Profundidad por sistema** (`solar_depth_*`, `spawn.h`): cada sistema nace
+con su **propio** valor único en `[0,1]` (0=atrás/chico/tenue,
+1=adelante/tamaño y brillo completos), para que la distancia se vea SIEMPRE,
+no solo cuando dos sistemas se cruzan. Antes eran 4 capas fijas
+(`SYS_LAYER_COUNT`) que se compartían en cuanto N>4. Puntos importantes si se
+retoca:
 
-- **Reparto barajado, no `rng_below` independiente por sistema**: un volado
-  independiente por sistema es exactamente el error ya litigado y
-  rechazado para las anclas (ver "El diseño de anclas" arriba) — con N
-  chico puede amontonar casi todo en una capa. `spawn_solar_systems` arma
-  `lay[s]=s%SYS_LAYER_COUNT` y lo baraja con el mismo Fisher-Yates que ya
-  usa para `assign[]`. `spawn_one_system` imita la lógica de "balde menos
-  poblado" que ya usaba para elegir ancla.
+- **Reparto uniforme barajado, no `rng_below` independiente por sistema**: un
+  volado independiente por sistema es exactamente el error ya litigado y
+  rechazado para las anclas (ver "El diseño de anclas" arriba) — daría
+  colisiones y huecos. `spawn_solar_systems` arma `dep[s]=s/(n-1)` (reparto
+  uniforme) y lo baraja con el mismo Fisher-Yates que ya usa para `assign[]`.
+  `spawn_one_system` coloca al recién nacido en el punto medio del hueco más
+  ancho de la lista de profundidades vivas (incluidos los extremos 0 y 1), así
+  ningún sistema comparte profundidad aunque hayan muerto y renacido varios.
 - **Spawn escala geometría, render escala brillo — NO al revés**. Se
   descartó a propósito repurposear `w->alpha[e]`/`twBase`/`twAmp` del sol
   para el atenuado por capa: `render_sun_glow` lee `w->alpha[e]` como
@@ -459,9 +467,9 @@ sistemas se cruzan. Puntos importantes si se retoca:
   achicar `twBase` ahí encoge el halo *dentro* del núcleo opaco en vez de
   atenuarlo, y se ve como el halo roto, no como distancia. En cambio: el
   tamaño (radio del sol, radios de órbita, velocidad lineal de deriva) se
-  hornea UNA vez al nacer en `spawn_system_into_slot` vía `solar_layer_scale`
+  hornea UNA vez al nacer en `spawn_system_into_slot` vía `solar_depth_scale`
   (`sc`); el brillo (glow del sol, alpha de planeta/estela/anillo) se lee
-  en el render vía `solar_layer_alpha`, directo de `ss->layer[s]` — las
+  en el render vía `solar_depth_alpha`, directo de `ss->depth[s]` — las
   dos funciones son `static inline` en `spawn.h`, una sola fuente de
   verdad para ambos lados.
 - **Copias locales, nunca mutar `ss->cellR`/`ss->sunRad`/`ss->planetRef`
@@ -484,16 +492,13 @@ sistemas se cruzan. Puntos importantes si se retoca:
   sol**, sin importar el sistema; ese era el bug real detrás de "no se ve
   cuál está adelante". Se partió en `render_sun_glow` (aditivo, sigue
   global/sin ordenar — conmuta, no importa el orden), `render_bodies`
-  (recorre las `SYS_LAYER_COUNT` capas de atrás hacia adelante, y dentro de
-  cada capa dibuja sol+planetas de cada sistema de forma atómica, ambos
-  atenuados por capa — el núcleo del sol originalmente se dejó a alpha 255
-  fijo a propósito, para no tocar un comportamiento no pedido, pero esa
-  decisión se revirtió en la vuelta siguiente el mismo día: ver la nota de
-  "retune de capas" al principio de esta sección) y `render_specular`
-  (aditivo, global). Por baldes de capa, no un sort genérico: con
-  `SYS_LAYER_COUNT` chico son 4 barridos filtrados, y dos sistemas de la
-  misma capa comparten escala/alpha — no hay un orden real entre ellos que
-  un sort pudiera capturar mejor.
+  (ordena un arreglo de índices por profundidad ascendente con insertion
+  sort —`ss->count <= MAX_SYSTEMS`, una vez por frame— y dibuja sol+planetas
+  de cada sistema de forma atómica en ese orden, ambos atenuados por
+  profundidad) y `render_specular` (aditivo, global). Ahora es un sort real y
+  no baldes: como cada sistema tiene profundidad única, el orden queda
+  totalmente definido (antes, dos sistemas de la misma capa no tenían orden
+  entre sí).
 - **Estelas**: `trails_append_body` ganó un parámetro `mul` que atenúa
   `cr/cg/cb` antes de guardarlos (así el color viaja con la columna, inmune
   a que `solar_system_remove` reindexe sistemas). `trails_init` se reescribió
@@ -506,19 +511,20 @@ sistemas se cruzan. Puntos importantes si se retoca:
   nunca detrás según su ángulo de órbita) — barato de agregar con
   `sinf(oang[e])` si algún día se nota, no era lo pedido.
 
-**Verificación**: arnés headless (mismo patrón documentado abajo, linkea
-`ecs.c spawn.c systems.c`, sin `deathstar.c`) con 200 ciclos de
-remove+spawn confirmando `ss->layer[s] ∈ [0,SYS_LAYER_COUNT)` en todo
-momento (agarra un swap-remove al que se le olvide copiar `layer[s]`) más
-los invariantes viejos de la tabla de anillos. Visualmente: capturas a
+**Verificación**: `tests/systems_test.c` — `assert_depths_unique` confirma que
+todas las `ss->depth[s]` son distintas y están en `[0,1]` para N=1,6,64,256;
+`assert_depth_survives_churn` repite la comprobación tras 6 muertes y 10
+renacimientos (agarra un swap-remove al que se le olvide copiar `depth[s]`);
+`assert_drift_visible` es la regresión del bug de la deriva (un sistema debe
+recorrer >20 px en 2 s de `sys_drift`). Visualmente: capturas a
 varios seeds/N muestran tamaño y brillo variando claramente sistema a
 sistema (no solo en los que se cruzan), y suelos cálidos con planetas
 cálidos / soles fríos con mezcla fría-neutra consistente.
 
 **Nota importante para cualquier baseline vieja**: los nuevos sorteos de
-RNG (índice de capa, índice de paleta del sol leído antes que antes) corren
-la secuencia de números aleatorios — **cualquier `--seed` de antes de esta
-sesión ahora produce una escena distinta**. No es una regresión, es
+RNG (barajado de profundidad, índice de paleta del sol leído antes que antes)
+corren la secuencia de números aleatorios — **cualquier `--seed` de antes de
+esta sesión ahora produce una escena distinta**. No es una regresión, es
 esperado; no comparar capturas viejas de STATUS.md contra el build actual
 pixel a pixel.
 
