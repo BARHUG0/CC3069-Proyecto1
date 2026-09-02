@@ -3,20 +3,69 @@
 #include <stdlib.h>
 #include <string.h>
 
-World *ecs_world_alloc(void)
+/* Cada arreglo SoA se reserva por separado con calloc (deja todo en cero =
+ * "mundo vacio"). ALLOC deja `w` medio construido si algo falla; el llamador
+ * hace ecs_world_free, que tolera punteros NULL. */
+#define ECS_ALLOC_FIELD(field, count)                       \
+    do {                                                    \
+        w->field = calloc((count), sizeof(*w->field));      \
+        if (w->field == NULL) { ecs_world_free(w); return NULL; } \
+    } while (0)
+
+World *ecs_world_alloc(uint32_t capacity)
 {
-    /* calloc y no malloc: deja todos los arreglos (incluido mask) en cero,
-     * que es exactamente el estado "mundo vacio". */
+    if (capacity == 0u) {
+        capacity = ECS_MAX_ENTITIES;
+    }
+
     World *w = (World *)calloc(1, sizeof(World));
     if (w == NULL) {
         return NULL;
     }
-    w->capacity = ECS_MAX_ENTITIES;
+    w->capacity = capacity;
+
+    ECS_ALLOC_FIELD(mask,     capacity);
+    ECS_ALLOC_FIELD(px,       capacity);
+    ECS_ALLOC_FIELD(py,       capacity);
+    ECS_ALLOC_FIELD(ocx,      capacity);
+    ECS_ALLOC_FIELD(ocy,      capacity);
+    ECS_ALLOC_FIELD(orx,      capacity);
+    ECS_ALLOC_FIELD(ory,      capacity);
+    ECS_ALLOC_FIELD(oang,     capacity);
+    ECS_ALLOC_FIELD(ospd,     capacity);
+    ECS_ALLOC_FIELD(rad,      capacity);
+    ECS_ALLOC_FIELD(alpha,    capacity);
+    ECS_ALLOC_FIELD(cr,       capacity);
+    ECS_ALLOC_FIELD(cg,       capacity);
+    ECS_ALLOC_FIELD(cb,       capacity);
+    ECS_ALLOC_FIELD(twPhase,  capacity);
+    ECS_ALLOC_FIELD(twFreq,   capacity);
+    ECS_ALLOC_FIELD(twBase,   capacity);
+    ECS_ALLOC_FIELD(twAmp,    capacity);
+    ECS_ALLOC_FIELD(life,     capacity);
+    ECS_ALLOC_FIELD(lifeMax,  capacity);
+    ECS_ALLOC_FIELD(freeList, capacity);
+
     return w;
 }
 
+#undef ECS_ALLOC_FIELD
+
 void ecs_world_free(World *w)
 {
+    if (w == NULL) {
+        return;
+    }
+    free(w->mask);
+    free(w->px);      free(w->py);
+    free(w->ocx);     free(w->ocy);
+    free(w->orx);     free(w->ory);
+    free(w->oang);    free(w->ospd);
+    free(w->rad);     free(w->alpha);
+    free(w->cr);      free(w->cg);      free(w->cb);
+    free(w->twPhase); free(w->twFreq);  free(w->twBase);  free(w->twAmp);
+    free(w->life);    free(w->lifeMax);
+    free(w->freeList);
     free(w);
 }
 

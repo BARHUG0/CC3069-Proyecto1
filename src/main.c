@@ -300,7 +300,7 @@ int main(int argc, char **argv)
         seed = (unsigned int)time(NULL);
     }
 
-    World *world = ecs_world_alloc();
+    World *world = ecs_world_alloc(0);
     if (world == NULL) {
         fprintf(stderr, "Error: no se pudo reservar el mundo (%.1f MB).\n",
                 (double)sizeof(World) / (1024.0 * 1024.0));

@@ -5,9 +5,37 @@
 
 #include "systems.h"
 
+/* World es SoA con arreglos en heap (ecs.h): no se puede memcmp la struct.
+ * Se comparan los scalars y cada arreglo entrada por entrada hasta capacity. */
 static void assert_worlds_equal(const World *a, const World *b)
 {
-    assert(memcmp(a, b, sizeof(*a)) == 0);
+    assert(a->capacity == b->capacity);
+    assert(a->highWater == b->highWater);
+    assert(a->alive == b->alive);
+    assert(a->freeCount == b->freeCount);
+
+    const uint32_t n = a->capacity;
+    assert(memcmp(a->mask,     b->mask,     n * sizeof(*a->mask))     == 0);
+    assert(memcmp(a->px,       b->px,       n * sizeof(*a->px))       == 0);
+    assert(memcmp(a->py,       b->py,       n * sizeof(*a->py))       == 0);
+    assert(memcmp(a->ocx,      b->ocx,      n * sizeof(*a->ocx))      == 0);
+    assert(memcmp(a->ocy,      b->ocy,      n * sizeof(*a->ocy))      == 0);
+    assert(memcmp(a->orx,      b->orx,      n * sizeof(*a->orx))      == 0);
+    assert(memcmp(a->ory,      b->ory,      n * sizeof(*a->ory))      == 0);
+    assert(memcmp(a->oang,     b->oang,     n * sizeof(*a->oang))     == 0);
+    assert(memcmp(a->ospd,     b->ospd,     n * sizeof(*a->ospd))     == 0);
+    assert(memcmp(a->rad,      b->rad,      n * sizeof(*a->rad))      == 0);
+    assert(memcmp(a->alpha,    b->alpha,    n * sizeof(*a->alpha))    == 0);
+    assert(memcmp(a->cr,       b->cr,       n * sizeof(*a->cr))       == 0);
+    assert(memcmp(a->cg,       b->cg,       n * sizeof(*a->cg))       == 0);
+    assert(memcmp(a->cb,       b->cb,       n * sizeof(*a->cb))       == 0);
+    assert(memcmp(a->twPhase,  b->twPhase,  n * sizeof(*a->twPhase))  == 0);
+    assert(memcmp(a->twFreq,   b->twFreq,   n * sizeof(*a->twFreq))   == 0);
+    assert(memcmp(a->twBase,   b->twBase,   n * sizeof(*a->twBase))   == 0);
+    assert(memcmp(a->twAmp,    b->twAmp,    n * sizeof(*a->twAmp))    == 0);
+    assert(memcmp(a->life,     b->life,     n * sizeof(*a->life))     == 0);
+    assert(memcmp(a->lifeMax,  b->lifeMax,  n * sizeof(*a->lifeMax))  == 0);
+    assert(memcmp(a->freeList, b->freeList, n * sizeof(*a->freeList)) == 0);
 }
 
 static void assert_starfield_full(const World *world, const StarField *starfield)
@@ -141,8 +169,8 @@ static void assert_depth_survives_churn(World *world, SolarSystems *systems)
 
 int main(void)
 {
-    World *sequentialWorld = ecs_world_alloc();
-    World *parallelWorld = ecs_world_alloc();
+    World *sequentialWorld = ecs_world_alloc(0);
+    World *parallelWorld = ecs_world_alloc(0);
     SolarSystems *sequentialSystems = calloc(1, sizeof(*sequentialSystems));
     SolarSystems *parallelSystems = calloc(1, sizeof(*parallelSystems));
     TrailBuffer *sequentialTrails = calloc(1, sizeof(*sequentialTrails));

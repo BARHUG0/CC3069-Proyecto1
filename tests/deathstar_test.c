@@ -51,7 +51,7 @@ int main(void)
     assert(ds.aimY == ss.cy[ds.victim]);
     assert(deathstar_fire(&ds, &ss, &rng) == 0);
 
-    World *world = ecs_world_alloc();
+    World *world = ecs_world_alloc(0);
     TrailBuffer *tb = calloc(1, sizeof(*tb));
     assert(world != NULL);
     assert(tb != NULL);
