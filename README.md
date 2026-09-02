@@ -17,10 +17,11 @@ raylib va en `vendor/raylib`
    ```
    pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-make
    ```
-3. Compila y corre desde la raíz del proyecto:
+3. Compila las versiones secuencial y paralela desde la raíz del proyecto:
    ```
    mingw32-make
    .\screensaver.exe 6
+   .\screensaver_parallel.exe 6
    ```
 
 > El proyecto debe vivir en una ruta sin espacios; el `Makefile` usa rutas relativas por eso.
@@ -33,6 +34,7 @@ raylib **no** va vendorizado para macOS (`vendor/raylib` solo trae binarios de W
 brew install raylib
 make
 ./screensaver 6
+./screensaver_parallel 6
 ```
 
 El `Makefile` usa `pkg-config` para ubicar los headers/libs de raylib que instala Homebrew, así que `pkg-config` debe estar en el PATH (viene con Homebrew).
@@ -113,6 +115,36 @@ Una ejecución interrumpida puede continuar a partir de su archivo `runs`:
 .\scripts\benchmark.ps1 -ResumeRunsFile .\benchmark-results\runs-AAAAMMDD-HHMMSS.csv
 ```
 
+La versión paralela usa OpenMP. La cantidad de hilos puede fijarse con
+`OMP_NUM_THREADS` o con el parámetro `-Threads` del benchmark:
+
+```powershell
+$env:OMP_NUM_THREADS = 4
+.\screensaver_parallel.exe 256 --no-vsync --benchmark
+
+.\scripts\benchmark.ps1 -Version sequential
+.\scripts\benchmark.ps1 -Version parallel -Threads 4
+```
+
+Para calcular el *speedup* y la eficiencia a partir de los dos archivos
+`summary` producidos:
+
+```powershell
+.\scripts\compare-benchmarks.ps1 `
+  -SequentialSummary .\benchmark-results\summary-secuencial.csv `
+  -ParallelSummary .\benchmark-results\summary-paralelo.csv
+```
+
+El *speedup* se calcula como `FPS paralelo / FPS secuencial`. La eficiencia
+es `speedup / hilos * 100`.
+
+Se eligió paralelismo de datos porque los sistemas recorren arreglos SoA y
+cada iteración actualiza una entidad o sistema solar independiente. OpenMP
+reparte los bucles de deriva, centelleo, órbitas, estelas y vida. La creación
+de estrellas permanece serial para conservar la secuencia del RNG y del
+asignador ECS. El render también permanece serial porque raylib y OpenGL deben
+usarse desde el hilo principal.
+
 Para comparar resultados deben mantenerse la misma semilla, resolución,
 cantidad de sistemas y estrellas, plan de energía y pantalla. También conviene
 cerrar aplicaciones pesadas y esperar a que la temperatura del equipo se
@@ -123,5 +155,9 @@ temperatura y los procesos del sistema todavía pueden variar el rendimiento.
 
 ```
 make run      # build + ./screensaver 6
+make run-parallel # build + ./screensaver_parallel 6
+make sequential   # solo la versión secuencial
+make parallel     # solo la versión OpenMP
+make test         # equivalencia secuencial/paralela
 make clean    # borra objetos y el binario
 ```
