@@ -60,12 +60,14 @@ void starfield_init(StarField *sf, int targetStars, float screenW, float screenH
 
 /* Crea estrellas hasta acercarse a targetStars. Devuelve cuantas creo. */
 int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt);
+int sys_spawn_stars_parallel(World *w, StarField *sf, Rng *rng, float dt);
 
 /* Hace girar cada sistema solar alrededor de su anclaje (ss->anchorX/Y[a]) y
  * propaga el nuevo centro a px/py del sol, ocx/ocy de sus planetas y los
  * centros de anillo: todo lo que depende del centro del sistema queda al dia
  * antes de que sys_orbit reproyecte. */
 void sys_drift(World *w, SolarSystems *ss, float dt);
+void sys_drift_parallel(World *w, SolarSystems *ss, float dt);
 
 /* --- estelas -------------------------------------------------------------
  * Estado global (como StarField): no es un dato por entidad, asi que vive
@@ -102,6 +104,7 @@ void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss);
 
 /* Empuja una rebanada de posiciones cuando toca (a TRAIL_HZ). */
 void sys_trails(const World *w, TrailBuffer *tb, float dt);
+void sys_trails_parallel(const World *w, TrailBuffer *tb, float dt);
 
 /* Alta/baja incremental de un sistema completo (sol + planetas) en tb, sin
  * tocar los demas cuerpos ni el historial compartido head/fill. Llamar
@@ -117,18 +120,23 @@ void trails_add_system(TrailBuffer *tb, const World *w, const SolarSystems *ss, 
 /* alpha = twBase + twAmp * sin(twFreq * t + twPhase). Solo lectura/escritura
  * por entidad, sin variables compartidas: paralelizable tal cual. */
 void sys_twinkle(World *w, float t);
+void sys_twinkle_parallel(World *w, float t);
 
 /* Integra el angulo orbital y proyecta la posicion sobre la elipse.
  * Tambien es puramente por entidad. */
 void sys_orbit(World *w, float dt);
+void sys_orbit_parallel(World *w, float dt);
 
 /* Descuenta vida, aplica el sobre de fundido y destruye lo agotado.
  * Devuelve cuantas entidades destruyo (para actualizar liveStars). */
 int sys_lifetime(World *w, float dt);
+int sys_lifetime_parallel(World *w, float dt);
 
 /* Dibuja todo. Debe correr entre BeginDrawing/EndDrawing y solo en el hilo
  * principal: OpenGL no es reentrante. */
 void sys_render(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
                 int showRings, int showTrails);
+void sys_render_parallel(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
+                         int showRings, int showTrails);
 
 #endif /* SYSTEMS_H */

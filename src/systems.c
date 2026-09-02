@@ -6,6 +6,13 @@
 
 #define FADE_IN_SECS  0.8f
 #define FADE_OUT_SECS 1.2f
+#define C_PENDING_DESTROY (1u << 31)
+
+#ifdef _OPENMP
+#define OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(static)")
+#else
+#define OMP_PARALLEL_FOR
+#endif
 
 static float clamp01(float v)
 {
@@ -70,76 +77,140 @@ int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt)
     return spawned;
 }
 
+int sys_spawn_stars_parallel(World *w, StarField *sf, Rng *rng, float dt)
+{
+    return sys_spawn_stars(w, sf, rng, dt);
+}
+
+static void twinkle_entity(World *w, uint32_t e, float t)
+{
+    const uint32_t want = C_RENDER | C_TWINKLE;
+    if ((w->mask[e] & want) != want) {
+        return;
+    }
+    w->alpha[e] = clamp01(w->twBase[e] +
+                          w->twAmp[e] * sinf(w->twFreq[e] * t + w->twPhase[e]));
+}
+
 void sys_twinkle(World *w, float t)
 {
-    const uint32_t n    = w->highWater;
-    const uint32_t want = C_RENDER | C_TWINKLE;
+    const uint32_t n = w->highWater;
 
     for (uint32_t e = 0; e < n; ++e) {
-        if ((w->mask[e] & want) != want) {
-            continue;
-        }
-        w->alpha[e] = clamp01(w->twBase[e] +
-                              w->twAmp[e] * sinf(w->twFreq[e] * t + w->twPhase[e]));
+        twinkle_entity(w, e, t);
+    }
+}
+
+void sys_twinkle_parallel(World *w, float t)
+{
+    const uint32_t n = w->highWater;
+
+    OMP_PARALLEL_FOR
+    for (uint32_t e = 0; e < n; ++e) {
+        twinkle_entity(w, e, t);
+    }
+}
+
+static void drift_system(World *w, SolarSystems *ss, int s, float dt)
+{
+    float a = ss->orbAng[s] + ss->orbSpd[s] * dt;
+    if (a > 6.2831853f) a -= 6.2831853f;
+    if (a < 0.0f)       a += 6.2831853f;
+    ss->orbAng[s] = a;
+
+    const int   anchorIdx = ss->anchor[s];
+    const float cx = ss->anchorX[anchorIdx] + ss->orbRad[s] * cosf(a);
+    const float cy = ss->anchorY[anchorIdx] + ss->orbRad[s] * sinf(a);
+
+    ss->cx[s] = cx;
+    ss->cy[s] = cy;
+
+    if (ss->sun[s] != ECS_INVALID) {
+        w->px[ss->sun[s]] = cx;
+        w->py[ss->sun[s]] = cy;
+    }
+
+    const int first = ss->ringFirst[s];
+    const int last  = first + ss->planetCount[s];
+    for (int i = first; i < last; ++i) {
+        ss->ringCx[i] = cx;
+        ss->ringCy[i] = cy;
+
+        const Entity pe = ss->ringEntity[i];
+        w->ocx[pe] = cx;
+        w->ocy[pe] = cy;
     }
 }
 
 void sys_drift(World *w, SolarSystems *ss, float dt)
 {
     for (int s = 0; s < ss->count; ++s) {
-        /* Mismo patron de integracion que sys_orbit (angulo + envoltura mod
-         * 2pi), aplicado al centro del sistema alrededor de una de las dos
-         * anclas compartidas en vez de a un planeta alrededor de su sol. */
-        float a = ss->orbAng[s] + ss->orbSpd[s] * dt;
-        if (a > 6.2831853f) a -= 6.2831853f;
-        if (a < 0.0f)       a += 6.2831853f;
-        ss->orbAng[s] = a;
-
-        const int   anchorIdx = ss->anchor[s];
-        const float cx = ss->anchorX[anchorIdx] + ss->orbRad[s] * cosf(a);
-        const float cy = ss->anchorY[anchorIdx] + ss->orbRad[s] * sinf(a);
-
-        ss->cx[s] = cx;
-        ss->cy[s] = cy;
-
-        if (ss->sun[s] != ECS_INVALID) {
-            w->px[ss->sun[s]] = cx;
-            w->py[ss->sun[s]] = cy;
-        }
-
-        const int first = ss->ringFirst[s];
-        const int last  = first + ss->planetCount[s];
-        for (int i = first; i < last; ++i) {
-            ss->ringCx[i] = cx;
-            ss->ringCy[i] = cy;
-
-            const Entity pe = ss->ringEntity[i];
-            w->ocx[pe] = cx;
-            w->ocy[pe] = cy;
-        }
+        drift_system(w, ss, s, dt);
     }
+}
+
+void sys_drift_parallel(World *w, SolarSystems *ss, float dt)
+{
+    OMP_PARALLEL_FOR
+    for (int s = 0; s < ss->count; ++s) {
+        drift_system(w, ss, s, dt);
+    }
+}
+
+static void orbit_entity(World *w, uint32_t e, float dt)
+{
+    const uint32_t want = C_ORBIT | C_POS;
+    if ((w->mask[e] & want) != want) {
+        return;
+    }
+    float a = w->oang[e] + w->ospd[e] * dt;
+
+    if (a > 6.2831853f)  a -= 6.2831853f;
+    if (a < 0.0f)        a += 6.2831853f;
+
+    w->oang[e] = a;
+    w->px[e]   = w->ocx[e] + w->orx[e] * cosf(a);
+    w->py[e]   = w->ocy[e] + w->ory[e] * sinf(a);
 }
 
 void sys_orbit(World *w, float dt)
 {
-    const uint32_t n    = w->highWater;
-    const uint32_t want = C_ORBIT | C_POS;
+    const uint32_t n = w->highWater;
 
     for (uint32_t e = 0; e < n; ++e) {
-        if ((w->mask[e] & want) != want) {
-            continue;
-        }
-        float a = w->oang[e] + w->ospd[e] * dt;
-
-        /* Envolver el angulo evita que crezca sin limite: con float, un angulo
-         * grande pierde precision y las orbitas empiezan a saltar. */
-        if (a > 6.2831853f)  a -= 6.2831853f;
-        if (a < 0.0f)        a += 6.2831853f;
-
-        w->oang[e] = a;
-        w->px[e]   = w->ocx[e] + w->orx[e] * cosf(a);
-        w->py[e]   = w->ocy[e] + w->ory[e] * sinf(a);
+        orbit_entity(w, e, dt);
     }
+}
+
+void sys_orbit_parallel(World *w, float dt)
+{
+    const uint32_t n = w->highWater;
+
+    OMP_PARALLEL_FOR
+    for (uint32_t e = 0; e < n; ++e) {
+        orbit_entity(w, e, dt);
+    }
+}
+
+static int lifetime_entity(World *w, uint32_t e, float dt)
+{
+    if ((w->mask[e] & C_LIFE) == 0u) {
+        return 0;
+    }
+
+    const float life = w->life[e] - dt;
+    if (life <= 0.0f) {
+        return 1;
+    }
+    w->life[e] = life;
+
+    const float age = w->lifeMax[e] - life;
+    float env = 1.0f;
+    if (age < FADE_IN_SECS)   env  = age / FADE_IN_SECS;
+    if (life < FADE_OUT_SECS) env *= life / FADE_OUT_SECS;
+
+    w->alpha[e] *= env;
+    return 0;
 }
 
 int sys_lifetime(World *w, float dt)
@@ -148,25 +219,31 @@ int sys_lifetime(World *w, float dt)
     int killed = 0;
 
     for (uint32_t e = 0; e < n; ++e) {
-        if ((w->mask[e] & C_LIFE) == 0u) {
-            continue;
-        }
-
-        const float life = w->life[e] - dt;
-        if (life <= 0.0f) {
+        if (lifetime_entity(w, e, dt)) {
             ecs_destroy(w, e);
             killed++;
-            continue;
         }
-        w->life[e] = life;
+    }
+    return killed;
+}
 
-        /* Sobre trapezoidal: entra en FADE_IN_SECS, sale en FADE_OUT_SECS. */
-        const float age = w->lifeMax[e] - life;
-        float env = 1.0f;
-        if (age < FADE_IN_SECS)   env  = age / FADE_IN_SECS;
-        if (life < FADE_OUT_SECS) env *= life / FADE_OUT_SECS;
+int sys_lifetime_parallel(World *w, float dt)
+{
+    const uint32_t n = w->highWater;
 
-        w->alpha[e] *= env;
+    OMP_PARALLEL_FOR
+    for (uint32_t e = 0; e < n; ++e) {
+        if (lifetime_entity(w, e, dt)) {
+            w->mask[e] |= C_PENDING_DESTROY;
+        }
+    }
+
+    int killed = 0;
+    for (uint32_t e = 0; e < n; ++e) {
+        if ((w->mask[e] & C_PENDING_DESTROY) != 0u) {
+            ecs_destroy(w, e);
+            killed++;
+        }
     }
     return killed;
 }
@@ -229,6 +306,30 @@ void sys_trails(const World *w, TrailBuffer *tb, float dt)
     tb->accum -= period;
 
     const int head = tb->head;
+    for (int b = 0; b < tb->bodyCount; ++b) {
+        const Entity e = tb->body[b];
+        tb->x[head][b] = w->px[e];
+        tb->y[head][b] = w->py[e];
+    }
+
+    tb->head = (head + 1) % TRAIL_LEN;
+    if (tb->fill < TRAIL_LEN) {
+        tb->fill++;
+    }
+}
+
+void sys_trails_parallel(const World *w, TrailBuffer *tb, float dt)
+{
+    tb->accum += dt;
+
+    const float period = 1.0f / TRAIL_HZ;
+    if (tb->accum < period) {
+        return;
+    }
+    tb->accum -= period;
+
+    const int head = tb->head;
+    OMP_PARALLEL_FOR
     for (int b = 0; b < tb->bodyCount; ++b) {
         const Entity e = tb->body[b];
         tb->x[head][b] = w->px[e];
@@ -500,4 +601,10 @@ void sys_render(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
     render_sun_glow(w, ss);
     render_bodies(w, ss);
     render_specular(w, ss);
+}
+
+void sys_render_parallel(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
+                         int showRings, int showTrails)
+{
+    sys_render(w, ss, tb, showRings, showTrails);
 }
