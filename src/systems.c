@@ -273,7 +273,7 @@ int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt)
 /* --- estelas -------------------------------------------------------------- */
 
 /* Agrega el cuerpo e al final de la tabla, con su color atenuado por mul
- * (ver solar_layer_alpha, spawn.h — asi la estela de un sistema de atras no
+ * (ver solar_depth_alpha, spawn.h — asi la estela de un sistema de atras no
  * queda mas brillante que su propio sol/planeta ya atenuados). Siembra las
  * TRAIL_LEN muestras con la posicion actual: la estela nueva arranca como
  * un punto en vez de con basura del slot que ocupara antes (head/fill son
@@ -301,7 +301,7 @@ void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss)
 {
     tb->bodyCount = 0;
     for (int s = 0; s < ss->count; ++s) {
-        const float mul = solar_layer_alpha(ss->layer[s]);
+        const float mul = solar_depth_alpha(ss->depth[s]);
         if (ss->sun[s] != ECS_INVALID) {
             trails_append_body(tb, w, ss->sun[s], mul);
         }
@@ -390,7 +390,7 @@ void trails_drop_system(TrailBuffer *tb, const SolarSystems *ss, int s)
 
 void trails_add_system(TrailBuffer *tb, const World *w, const SolarSystems *ss, int s)
 {
-    const float mul = solar_layer_alpha(ss->layer[s]);
+    const float mul = solar_depth_alpha(ss->depth[s]);
     if (ss->sun[s] != ECS_INVALID) {
         trails_append_body(tb, w, ss->sun[s], mul);
     }
@@ -445,7 +445,7 @@ static void render_starfield(const World *w)
 static void render_rings(const SolarSystems *ss)
 {
     for (int s = 0; s < ss->count; ++s) {
-        const unsigned char a = alpha8(30.0f / 255.0f * solar_layer_alpha(ss->layer[s]));
+        const unsigned char a = alpha8(30.0f / 255.0f * solar_depth_alpha(ss->depth[s]));
         const int first = ss->ringFirst[s];
         const int last  = first + ss->planetCount[s];
         for (int i = first; i < last; ++i) {
@@ -581,7 +581,7 @@ static void render_sun_glow(const World *w, const SolarSystems *ss)
             continue; /* el escaneo global por mascara lo filtraba solo; el
                        * recorrido por sistema necesita este guard explicito */
         }
-        const float   mul   = solar_layer_alpha(ss->layer[s]);
+        const float   mul   = solar_depth_alpha(ss->depth[s]);
         const Vector2 p     = { w->px[e], w->py[e] };
         const float   r     = w->rad[e];
         const float   pulse = w->alpha[e];
@@ -594,20 +594,18 @@ static void render_sun_glow(const World *w, const SolarSystems *ss)
     EndBlendMode();
 }
 
-/* El pase que de verdad resuelve "cual esta adelante": por capa, atras
- * primero (SYS_LAYER_COUNT es chico — hoy 4 — asi que son baldes filtrados,
- * no un sort generico; dos sistemas en la misma capa comparten
- * escala/alpha, no hay un orden real que definir entre ellos). Dentro de
- * cada capa dibuja el sol de cada sistema y sus planetas, ambos atenuados
- * por capa (el nucleo del sol tambien — a diferencia de la primera version
- * de esta funcion, que lo dejaba a 255 fijo a proposito para no tocar un
- * comportamiento no pedido: el usuario pidio despues que la diferencia
- * entre capas se notara mas, y el sol es el elemento mas grande/brillante
- * de cada sistema, asi que dejarlo sin atenuar tapaba el efecto). Asi un
- * sistema de una capa mas al frente siempre tapa a uno de atras, sea
- * sol-sobre-sol, sol-sobre-planeta o planeta-sobre-planeta — antes, con
- * "todos los soles y despues todos los planetas" en orden de entidad, todo
- * planeta de la escena tapaba a todo sol sin importar el sistema.
+/* El pase que de verdad resuelve "cual esta adelante": ordena los sistemas
+ * atras->adelante por profundidad (insercion sobre un arreglo de indices —
+ * ss->count <= MAX_SYSTEMS, una vez por frame) y los dibuja en ese orden.
+ * Como dos sistemas nunca comparten profundidad (ver spawn.c), el orden queda
+ * totalmente definido: uno mas al frente siempre tapa a uno de atras, sea
+ * sol-sobre-sol, sol-sobre-planeta o planeta-sobre-planeta. Sol y planetas se
+ * atenuan por profundidad (el nucleo del sol tambien — es el elemento mas
+ * grande de cada sistema, dejarlo sin atenuar tapaba el efecto de distancia).
+ *
+ * ponytail: insertion sort O(n^2) — con MAX_SYSTEMS=256 son ~32k comparaciones
+ * en el peor caso, despreciable frente al render. Pasar a un sort O(n log n)
+ * si MAX_SYSTEMS crece mucho.
  *
  * ponytail: sin orden intra-sistema (un planeta siempre se dibuja encima de
  * su propio sol, nunca detras, aunque su angulo de orbita lo pondria
@@ -615,24 +613,34 @@ static void render_sun_glow(const World *w, const SolarSystems *ss)
  * sinf(oang[e]) si algun dia se nota; no es lo que se pidio. */
 static void render_bodies(const World *w, const SolarSystems *ss)
 {
-    for (int L = 0; L < SYS_LAYER_COUNT; ++L) {
-        const unsigned char a = alpha8(solar_layer_alpha(L));
-        for (int s = 0; s < ss->count; ++s) {
-            if (ss->layer[s] != L) {
-                continue;
-            }
-            if (ss->sun[s] != ECS_INVALID) {
-                const Entity e = ss->sun[s];
-                DrawCircleV((Vector2){ w->px[e], w->py[e] }, w->rad[e],
-                           (Color){ w->cr[e], w->cg[e], w->cb[e], a });
-            }
-            const int first = ss->ringFirst[s];
-            const int last  = first + ss->planetCount[s];
-            for (int i = first; i < last; ++i) {
-                const Entity e = ss->ringEntity[i];
-                DrawCircleV((Vector2){ w->px[e], w->py[e] }, w->rad[e],
-                           (Color){ w->cr[e], w->cg[e], w->cb[e], a });
-            }
+    int order[MAX_SYSTEMS];
+    for (int i = 0; i < ss->count; ++i) {
+        order[i] = i;
+    }
+    for (int i = 1; i < ss->count; ++i) {
+        const int v = order[i];
+        int j = i - 1;
+        while (j >= 0 && ss->depth[order[j]] > ss->depth[v]) {
+            order[j + 1] = order[j];
+            --j;
+        }
+        order[j + 1] = v;
+    }
+
+    for (int k = 0; k < ss->count; ++k) {
+        const int s = order[k];
+        const unsigned char a = alpha8(solar_depth_alpha(ss->depth[s]));
+        if (ss->sun[s] != ECS_INVALID) {
+            const Entity e = ss->sun[s];
+            DrawCircleV((Vector2){ w->px[e], w->py[e] }, w->rad[e],
+                       (Color){ w->cr[e], w->cg[e], w->cb[e], a });
+        }
+        const int first = ss->ringFirst[s];
+        const int last  = first + ss->planetCount[s];
+        for (int i = first; i < last; ++i) {
+            const Entity e = ss->ringEntity[i];
+            DrawCircleV((Vector2){ w->px[e], w->py[e] }, w->rad[e],
+                       (Color){ w->cr[e], w->cg[e], w->cb[e], a });
         }
     }
 }
@@ -644,7 +652,7 @@ static void render_specular(const World *w, const SolarSystems *ss)
 {
     BeginBlendMode(BLEND_ADDITIVE);
     for (int s = 0; s < ss->count; ++s) {
-        const float mul = solar_layer_alpha(ss->layer[s]);
+        const float mul = solar_depth_alpha(ss->depth[s]);
         const int first = ss->ringFirst[s];
         const int last  = first + ss->planetCount[s];
         for (int i = first; i < last; ++i) {

@@ -40,7 +40,7 @@ int main(void)
     for (int i = 0; i < ss.count; ++i) {
         ss.cx[i] = 100.0f + 100.0f * (float)i;
         ss.cy[i] = 200.0f + 50.0f * (float)i;
-        ss.layer[i] = i % SYS_LAYER_COUNT;
+        ss.depth[i] = (float)i / (float)(ss.count - 1);
     }
 
     Rng rng;

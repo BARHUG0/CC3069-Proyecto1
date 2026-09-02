@@ -361,7 +361,7 @@ int deathstar_fire(DeathStar *ds, const SolarSystems *ss, Rng *rng)
 /* --- explosiones ----------------------------------------------------------
  * Tabla aplanada: la explosion i ocupa
  * [i*DS_EXP_PARTICLES, (i+1)*DS_EXP_PARTICLES) en partDir/partSpd. */
-static void ds_spawn_explosion(DeathStar *ds, Rng *rng, float cx, float cy, int layer)
+static void ds_spawn_explosion(DeathStar *ds, Rng *rng, float cx, float cy, float depth)
 {
     if (ds->expCount >= DS_MAX_EXPLOSIONS) {
         return; /* explosiones simultaneas de sobra para el ritmo de disparo */
@@ -371,7 +371,7 @@ static void ds_spawn_explosion(DeathStar *ds, Rng *rng, float cx, float cy, int 
     ds->expY[i]     = cy;
     ds->expAge[i]   = 0.0f;
     ds->expDur[i]   = DS_EXP_DUR;
-    ds->expLayer[i] = layer;
+    ds->expDepth[i] = depth;
 
     for (int k = 0; k < DS_EXP_PARTICLES; ++k) {
         const int idx = i * DS_EXP_PARTICLES + k;
@@ -396,7 +396,7 @@ static void ds_update_explosions(DeathStar *ds, float dt)
             ds->expY[i]     = ds->expY[last];
             ds->expAge[i]   = ds->expAge[last];
             ds->expDur[i]   = ds->expDur[last];
-            ds->expLayer[i] = ds->expLayer[last];
+            ds->expDepth[i] = ds->expDepth[last];
             for (int k = 0; k < DS_EXP_PARTICLES; ++k) {
                 ds->partDir[i * DS_EXP_PARTICLES + k] = ds->partDir[last * DS_EXP_PARTICLES + k];
                 ds->partSpd[i * DS_EXP_PARTICLES + k] = ds->partSpd[last * DS_EXP_PARTICLES + k];
@@ -444,7 +444,7 @@ void deathstar_update(DeathStar *ds, World *w, SolarSystems *ss, TrailBuffer *tb
 
             const int victim = ds->victim;
             if (victim >= 0 && victim < ss->count) {
-                ds_spawn_explosion(ds, rng, ss->cx[victim], ss->cy[victim], ss->layer[victim]);
+                ds_spawn_explosion(ds, rng, ss->cx[victim], ss->cy[victim], ss->depth[victim]);
                 trails_drop_system(tb, ss, victim);
                 solar_system_remove(w, ss, victim);
                 ds->kills++;
@@ -569,10 +569,10 @@ static void ds_render_beam(const DeathStar *ds, Vector3 offset)
  *      para que el final no sea un corte seco.
  *
  * Todo el tamano y el alpha de las 5 fases se escala por sc/al —
- * solar_layer_scale/solar_layer_alpha de la CAPA del sistema que murio
- * (ds->expLayer[i], spawn.h) — para que la explosion de un sistema de una
- * capa de atras se vea tan chica y tenue como se veia el sistema vivo, en
- * vez de saltar siempre a tamano/brillo de primera capa. */
+ * solar_depth_scale/solar_depth_alpha de la PROFUNDIDAD del sistema que murio
+ * (ds->expDepth[i], spawn.h) — para que la explosion de un sistema lejano se
+ * vea tan chica y tenue como se veia el sistema vivo, en vez de saltar
+ * siempre a tamano/brillo de primer plano. */
 static void ds_render_explosions(const DeathStar *ds)
 {
     if (ds->expCount == 0) {
@@ -582,8 +582,8 @@ static void ds_render_explosions(const DeathStar *ds)
     BeginBlendMode(BLEND_ADDITIVE);
     for (int i = 0; i < ds->expCount; ++i) {
         const float t  = ds_clampf(ds->expAge[i] / ds->expDur[i], 0.0f, 1.0f);
-        const float sc = solar_layer_scale(ds->expLayer[i]);
-        const float al = solar_layer_alpha(ds->expLayer[i]);
+        const float sc = solar_depth_scale(ds->expDepth[i]);
+        const float al = solar_depth_alpha(ds->expDepth[i]);
         const Vector2 c = { ds->expX[i], ds->expY[i] };
 
         /* 1. destello + puntas de difraccion */
@@ -652,8 +652,8 @@ static void ds_render_explosions(const DeathStar *ds)
         if (t <= 0.45f) {
             continue;
         }
-        const float sc = solar_layer_scale(ds->expLayer[i]);
-        const float al = solar_layer_alpha(ds->expLayer[i]);
+        const float sc = solar_depth_scale(ds->expDepth[i]);
+        const float al = solar_depth_alpha(ds->expDepth[i]);
         const float st = (t - 0.45f) / 0.55f; /* 0 -> 1 */
         const Vector2 c = { ds->expX[i], ds->expY[i] };
         for (int k = 0; k < 3; ++k) {

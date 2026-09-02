@@ -14,31 +14,27 @@
 #define MAX_PLANETS_PER_SYS   8
 #define MAX_PLANETS_TOTAL   (MAX_SYSTEMS * MAX_PLANETS_PER_SYS)
 
-/* Capas de profundidad: cada sistema nace en una de SYS_LAYER_COUNT capas
- * fijas (0 = mas atras/chica/tenue, SYS_LAYER_COUNT-1 = mas al frente,
- * tamano/brillo completos) para que la distancia se vea SIEMPRE, no solo
- * cuando dos sistemas se cruzan. spawn.c hornea la capa en la geometria
- * (radio del sol, radios de orbita, velocidad) una sola vez al nacer;
- * systems.c la usa en el render para el orden de pintado (opacos: el sol y
- * los planetas de una capa se pintan todos antes que la siguiente, asi el
- * de encima siempre tapa al de atras) y para el brillo (aditivo del
- * resplandor solar, estelas). Estas dos funciones son la unica fuente de
- * verdad para esa escala/brillo — usadas tanto al nacer (spawn.c) como al
- * pintar (systems.c) para que no se desincronicen. */
-#define SYS_LAYER_COUNT 4
-
-static inline float solar_layer_scale(int layer)
+/* Profundidad: cada sistema nace con su PROPIO valor unico en [0,1] (0 = mas
+ * atras/chica/tenue, 1 = mas al frente, tamano/brillo completos) para que la
+ * distancia se vea SIEMPRE, no solo cuando dos sistemas se cruzan. A
+ * diferencia de las capas fijas de antes, dos sistemas nunca comparten
+ * profundidad — ni al nacer (reparto uniforme + barajado, spawn.c) ni tras
+ * morir y renacer (punto medio del hueco mas ancho, spawn_one_system).
+ * spawn.c hornea la profundidad en la geometria (radio del sol, radios de
+ * orbita, velocidad) una sola vez al nacer; systems.c la usa en el render
+ * para el orden de pintado (los opacos se ordenan atras->adelante por
+ * profundidad, asi el de encima siempre tapa al de atras) y para el brillo
+ * (aditivo del resplandor solar, estelas). Estas dos funciones son la unica
+ * fuente de verdad para esa escala/brillo — usadas tanto al nacer (spawn.c)
+ * como al pintar (systems.c) para que no se desincronicen. */
+static inline float solar_depth_scale(float depth)
 {
-    if (SYS_LAYER_COUNT <= 1) return 1.0f;
-    const float t = (float)layer / (float)(SYS_LAYER_COUNT - 1);
-    return 0.45f + 0.55f * t;
+    return 0.45f + 0.55f * depth;
 }
 
-static inline float solar_layer_alpha(int layer)
+static inline float solar_depth_alpha(float depth)
 {
-    if (SYS_LAYER_COUNT <= 1) return 1.0f;
-    const float t = (float)layer / (float)(SYS_LAYER_COUNT - 1);
-    return 0.20f + 0.80f * t;
+    return 0.20f + 0.80f * depth;
 }
 
 /* Datos de los sistemas solares, tambien en SoA.
@@ -86,11 +82,11 @@ typedef struct SolarSystems {
     float orbAng[MAX_SYSTEMS];  /* angulo actual (rad)                 */
     float orbSpd[MAX_SYSTEMS];  /* velocidad angular (rad/s), con signo */
 
-    /* Capa de profundidad, ver SYS_LAYER_COUNT arriba. IMPORTANTE: como
-     * anchor/orbRad/orbAng/orbSpd de arriba, debe copiarse en el
-     * swap-remove de solar_system_remove (spawn.c) o queda desactualizada
+    /* Profundidad unica por sistema en [0,1], ver solar_depth_* arriba.
+     * IMPORTANTE: como anchor/orbRad/orbAng/orbSpd de arriba, debe copiarse en
+     * el swap-remove de solar_system_remove (spawn.c) o queda desactualizada
      * tras un impacto de la Estrella de la Muerte. */
-    int layer[MAX_SYSTEMS];
+    float depth[MAX_SYSTEMS];
 
     /* Layout de rejilla de spawn_solar_systems, guardado para que
      * spawn_one_system pueda hacer nacer un sistema nuevo (p.ej. tras un

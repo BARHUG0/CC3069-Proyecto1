@@ -169,22 +169,22 @@ static Entity spawn_planet(World *w, Rng *rng, float cx, float cy,
  * s < MAX_SYSTEMS; el llamador es quien decide si s es un slot nuevo o uno
  * reciclado y ajusta ss->count.
  *
- * `layer` (ver SYS_LAYER_COUNT, spawn.h) hornea la profundidad en la
+ * `depth` (ver solar_depth_*, spawn.h) hornea la profundidad en la
  * GEOMETRIA una sola vez aca (radio del sol, radios de orbita, velocidad de
- * deriva) — el brillo/alpha por capa vive en el render (systems.c), no aca,
- * para no pelear con sys_twinkle que reescribe w->alpha[e] cada frame para
- * el sol. IMPORTANTE: usa copias LOCALES escaladas (cellRs/sunRadS/prRef),
+ * deriva) — el brillo/alpha por profundidad vive en el render (systems.c), no
+ * aca, para no pelear con sys_twinkle que reescribe w->alpha[e] cada frame
+ * para el sol. IMPORTANTE: usa copias LOCALES escaladas (cellRs/sunRadS/prRef),
  * nunca ss->cellR/ss->sunRad directamente — esos son la plantilla
  * compartida que reusan spawn_one_system (cada respawn futuro) y
  * deathstar_update (ds->blastR); escalarlos in-place corromperia a todos
  * los sistemas siguientes. */
 static void spawn_system_into_slot(World *w, SolarSystems *ss, Rng *rng,
                                    int s, float cx, float cy, int anchorIdx,
-                                   int layer)
+                                   float depth)
 {
     ss->anchor[s] = anchorIdx;
-    ss->layer[s]  = layer;
-    const float sc = solar_layer_scale(layer);
+    ss->depth[s]  = depth;
+    const float sc = solar_depth_scale(depth);
 
     /* Radio y angulo de orbita: geometria real hacia el ancla sorteada, no un
      * sorteo acotado a la mitad del ancla. Un sistema nacido en una mitad
@@ -334,21 +334,20 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         assign[j] = tmp;
     }
 
-    /* Mismo reparto barajado para la capa de profundidad (ver
-     * SYS_LAYER_COUNT, spawn.h): un rng_below(rng, SYS_LAYER_COUNT)
-     * independiente por sistema es exactamente el volado independiente que
-     * se rechazo arriba para las anclas — con N chico puede amontonar casi
-     * todos los sistemas en una sola capa y la sensacion de profundidad no
-     * se nota. s % SYS_LAYER_COUNT reparte parejo, el shuffle desordena. */
-    int lay[MAX_SYSTEMS];
+    /* Profundidad: reparto uniforme en [0,1] (dep[s] = s/(n-1)) y luego
+     * barajado, mismo criterio que las anclas de arriba. Un rng por sistema
+     * daria colisiones y huecos; el reparto uniforme garantiza que cada
+     * sistema tenga su propia profundidad y que esten repartidas parejo, el
+     * shuffle rompe la correlacion con la posicion en la rejilla. */
+    float dep[MAX_SYSTEMS];
     for (int s = 0; s < n; ++s) {
-        lay[s] = s % SYS_LAYER_COUNT;
+        dep[s] = (n > 1) ? (float)s / (float)(n - 1) : 1.0f;
     }
     for (int s = n - 1; s > 0; --s) {
         const int j = (int)rng_below(rng, (uint32_t)(s + 1));
-        const int tmp = lay[s];
-        lay[s] = lay[j];
-        lay[j] = tmp;
+        const float tmp = dep[s];
+        dep[s] = dep[j];
+        dep[j] = tmp;
     }
 
     for (int s = 0; s < n; ++s) {
@@ -359,7 +358,7 @@ void spawn_solar_systems(World *w, SolarSystems *ss, Rng *rng,
         const float cx = (col + 0.5f) * ss->cellW + rng_range(rng, -ss->jitter, ss->jitter);
         const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
-        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s], lay[s]);
+        spawn_system_into_slot(w, ss, rng, s, cx, cy, assign[s], dep[s]);
     }
 }
 
@@ -380,18 +379,31 @@ int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
     const int anchorIdx = (count0 != count1) ? (count0 < count1 ? 0 : 1)
                                               : (int)rng_below(rng, 2u);
 
-    /* Capa = la menos poblada ahora mismo (empate = la de menor indice):
-     * mismo motivo que el balance de ancla arriba, adaptado a mas de dos
-     * baldes. */
-    int layCount[SYS_LAYER_COUNT] = { 0 };
+    /* Profundidad = punto medio del hueco mas ancho en la lista de
+     * profundidades vivas (incluidos los extremos 0 y 1). Asi el sistema nuevo
+     * cae donde mas separado queda de los demas y ninguno comparte
+     * profundidad, aunque hayan muerto y renacido varios. */
+    float sorted[MAX_SYSTEMS];
     for (int i = 0; i < ss->count; ++i) {
-        layCount[ss->layer[i]]++;
+        sorted[i] = ss->depth[i];
     }
-    int layer = 0;
-    for (int L = 1; L < SYS_LAYER_COUNT; ++L) {
-        if (layCount[L] < layCount[layer]) {
-            layer = L;
+    for (int i = 1; i < ss->count; ++i) {
+        const float v = sorted[i];
+        int j = i - 1;
+        while (j >= 0 && sorted[j] > v) {
+            sorted[j + 1] = sorted[j];
+            --j;
         }
+        sorted[j + 1] = v;
+    }
+    float lo = 0.0f, bestGap = -1.0f, depth = 0.5f;
+    for (int i = 0; i <= ss->count; ++i) {
+        const float hi = (i < ss->count) ? sorted[i] : 1.0f;
+        if (hi - lo > bestGap) {
+            bestGap = hi - lo;
+            depth = 0.5f * (lo + hi);
+        }
+        lo = hi;
     }
 
     /* Celda al azar de la misma rejilla del spawn inicial. Solaparse con un
@@ -402,7 +414,7 @@ int spawn_one_system(World *w, SolarSystems *ss, Rng *rng)
     const float cy = (row + 0.5f) * ss->cellH + rng_range(rng, -ss->jitter, ss->jitter);
 
     const int s = ss->count;
-    spawn_system_into_slot(w, ss, rng, s, cx, cy, anchorIdx, layer);
+    spawn_system_into_slot(w, ss, rng, s, cx, cy, anchorIdx, depth);
     ss->count++;
     return s;
 }
@@ -455,7 +467,7 @@ void solar_system_remove(World *w, SolarSystems *ss, int s)
         ss->orbRad[s]      = ss->orbRad[last];
         ss->orbAng[s]      = ss->orbAng[last];
         ss->orbSpd[s]      = ss->orbSpd[last];
-        ss->layer[s]       = ss->layer[last];
+        ss->depth[s]       = ss->depth[last];
     }
     ss->count--;
 }

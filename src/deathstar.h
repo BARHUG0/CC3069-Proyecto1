@@ -96,13 +96,13 @@ typedef struct DeathStar {
     int   expCount;
     float expX[DS_MAX_EXPLOSIONS], expY[DS_MAX_EXPLOSIONS];
     float expAge[DS_MAX_EXPLOSIONS], expDur[DS_MAX_EXPLOSIONS];
-    /* Capa de profundidad (ver SYS_LAYER_COUNT, spawn.h) del sistema que
-     * murio para crear esta explosion, no una escala/alpha precalculada:
-     * ds_render_explosions llama a solar_layer_scale/solar_layer_alpha con
-     * esto, misma fuente de verdad que usa el resto del render por capas,
-     * para que la explosion se vea tan chica/tenue como se veia el sistema
-     * vivo. */
-    int   expLayer[DS_MAX_EXPLOSIONS];
+    /* Profundidad (ver solar_depth_*, spawn.h) del sistema que murio para
+     * crear esta explosion, no una escala/alpha precalculada:
+     * ds_render_explosions llama a solar_depth_scale/solar_depth_alpha con
+     * esto, misma fuente de verdad que usa el resto del render por
+     * profundidad, para que la explosion se vea tan chica/tenue como se veia
+     * el sistema vivo. */
+    float expDepth[DS_MAX_EXPLOSIONS];
     float partDir[DS_MAX_EXPLOSIONS * DS_EXP_PARTICLES];
     float partSpd[DS_MAX_EXPLOSIONS * DS_EXP_PARTICLES];
 } DeathStar;
