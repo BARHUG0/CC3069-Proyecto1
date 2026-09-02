@@ -146,14 +146,25 @@ como dato adicional, pero no se usan para calcular el *speedup* porque el
 renderizado permanece serial.
 
 La cantidad de hilos OpenMP puede fijarse con `OMP_NUM_THREADS` o con el
-parámetro `-Threads`.
+parámetro `-Threads`. La implementación usa como máximo 4 hilos porque las
+pruebas en el equipo de referencia mostraron que 6 o 12 compiten con el hilo
+de render y reducen los FPS totales.
 
 Se eligió paralelismo de datos porque los sistemas recorren arreglos SoA y
-cada iteración actualiza una entidad o sistema solar independiente. OpenMP
-reparte los bucles de deriva, centelleo, órbitas, estelas y vida. La creación
-de estrellas permanece serial para conservar la secuencia del RNG y del
-asignador ECS. El render también permanece serial porque raylib y OpenGL deben
-usarse desde el hilo principal.
+cada iteración actualiza una entidad independiente. Las dos versiones fusionan
+centelleo, órbitas y vida en un recorrido. OpenMP reparte ese mismo recorrido y,
+al terminar, realiza una única unión antes de que el hilo principal lea
+posiciones para las estelas y el render. No se usan mutexes, atómicos ni
+secciones críticas. La deriva, creación, destrucción y estelas permanecen
+seriales porque sus recorridos son pequeños o modifican estado global. Con
+menos de 6144 entidades, la versión paralela usa directamente el recorrido
+secuencial para evitar que el costo de OpenMP supere el trabajo.
+
+El render permanece en el hilo principal porque raylib y OpenGL no son
+reentrantes. Las estelas conservan todas sus 120 muestras y el mismo grosor,
+color y alfa, pero sus triángulos se cargan en una malla dinámica y se dibujan
+en una sola llamada. Esto evita miles de descargas del lote interno de raylib
+sin reducir detalle visual.
 
 Para comparar resultados deben mantenerse la misma semilla, resolución,
 cantidad de sistemas y estrellas, plan de energía y pantalla. También conviene

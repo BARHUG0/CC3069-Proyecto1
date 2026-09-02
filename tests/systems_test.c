@@ -112,7 +112,7 @@ int main(void)
     const int sequentialSpawned =
         sys_spawn_stars(sequentialWorld, &sequentialStars, &sequentialRng, 1.0f);
     const int parallelSpawned =
-        sys_spawn_stars_parallel(parallelWorld, &parallelStars, &parallelRng, 1.0f);
+        sys_spawn_stars(parallelWorld, &parallelStars, &parallelRng, 1.0f);
 
     assert(sequentialSpawned == parallelSpawned);
     assert(memcmp(&sequentialStars, &parallelStars, sizeof(sequentialStars)) == 0);
@@ -121,30 +121,42 @@ int main(void)
     assert(memcmp(sequentialSystems, parallelSystems, sizeof(*sequentialSystems)) == 0);
 
     sys_drift(sequentialWorld, sequentialSystems, 0.016f);
-    sys_drift_parallel(parallelWorld, parallelSystems, 0.016f);
+    sys_drift(parallelWorld, parallelSystems, 0.016f);
     assert_worlds_equal(sequentialWorld, parallelWorld);
     assert(memcmp(sequentialSystems, parallelSystems, sizeof(*sequentialSystems)) == 0);
     assert_systems_visible(sequentialWorld, sequentialSystems, 1280.0f, 720.0f);
     assert_systems_visible(parallelWorld, parallelSystems, 1280.0f, 720.0f);
 
-    sys_twinkle(sequentialWorld, 3.5f);
-    sys_twinkle_parallel(parallelWorld, 3.5f);
-    assert_worlds_equal(sequentialWorld, parallelWorld);
-
-    sys_orbit(sequentialWorld, 0.016f);
-    sys_orbit_parallel(parallelWorld, 0.016f);
-    assert_worlds_equal(sequentialWorld, parallelWorld);
-
     trails_init(sequentialTrails, sequentialWorld, sequentialSystems);
     trails_init(parallelTrails, parallelWorld, parallelSystems);
-    sys_trails(sequentialWorld, sequentialTrails, 0.1f);
-    sys_trails_parallel(parallelWorld, parallelTrails, 0.1f);
-    assert(memcmp(sequentialTrails, parallelTrails, sizeof(*sequentialTrails)) == 0);
-
-    const int sequentialKilled = sys_lifetime(sequentialWorld, 20.0f);
-    const int parallelKilled = sys_lifetime_parallel(parallelWorld, 20.0f);
+    const int sequentialKilled =
+        sys_update(sequentialWorld, sequentialTrails, 3.5f, 20.0f);
+    const int parallelKilled =
+        sys_update_parallel(parallelWorld, parallelTrails, 3.5f, 20.0f);
     assert(sequentialKilled == parallelKilled);
     assert(sequentialKilled == sequentialStars.targetStars);
+    assert(memcmp(sequentialTrails, parallelTrails, sizeof(*sequentialTrails)) == 0);
+    assert_worlds_equal(sequentialWorld, parallelWorld);
+
+    rng_seed(&sequentialRng, 20260901u);
+    rng_seed(&parallelRng, 20260901u);
+    ecs_reset(sequentialWorld);
+    ecs_reset(parallelWorld);
+    spawn_solar_systems(sequentialWorld, sequentialSystems, &sequentialRng,
+                        1, 320.0f, 240.0f);
+    spawn_solar_systems(parallelWorld, parallelSystems, &parallelRng,
+                        1, 320.0f, 240.0f);
+    starfield_init(sequentialWorld, &sequentialStars, &sequentialRng,
+                   16, 320.0f, 240.0f);
+    starfield_init(parallelWorld, &parallelStars, &parallelRng,
+                   16, 320.0f, 240.0f);
+    trails_init(sequentialTrails, sequentialWorld, sequentialSystems);
+    trails_init(parallelTrails, parallelWorld, parallelSystems);
+    sys_drift(sequentialWorld, sequentialSystems, 0.016f);
+    sys_drift(parallelWorld, parallelSystems, 0.016f);
+    assert(sys_update(sequentialWorld, sequentialTrails, 1.0f, 0.016f) ==
+           sys_update_parallel(parallelWorld, parallelTrails, 1.0f, 0.016f));
+    assert(memcmp(sequentialTrails, parallelTrails, sizeof(*sequentialTrails)) == 0);
     assert_worlds_equal(sequentialWorld, parallelWorld);
 
     assert_layout_bounds(sequentialWorld, sequentialSystems);

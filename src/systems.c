@@ -3,16 +3,33 @@
 #include <math.h>
 
 #include "raylib.h"
+#include "raymath.h"
+#include "rlgl.h"
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #define FADE_IN_SECS  0.8f
 #define FADE_OUT_SECS 1.2f
 #define C_PENDING_DESTROY (1u << 31)
+#define PARALLEL_MIN_ENTITIES 6144u
+#define PARALLEL_MAX_THREADS 4
 
+static Mesh trailMesh;
+static Material trailMaterial;
+static int trailMeshReady;
+static int trailVertexCapacity;
+
+int sys_parallel_threads(void)
+{
 #ifdef _OPENMP
-#define OMP_PARALLEL_FOR _Pragma("omp parallel for schedule(static)")
+    const int available = omp_get_max_threads();
+    return available < PARALLEL_MAX_THREADS ? available : PARALLEL_MAX_THREADS;
 #else
-#define OMP_PARALLEL_FOR
+    return 1;
 #endif
+}
 
 static float clamp01(float v)
 {
@@ -85,11 +102,6 @@ int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt)
     return spawned;
 }
 
-int sys_spawn_stars_parallel(World *w, StarField *sf, Rng *rng, float dt)
-{
-    return sys_spawn_stars(w, sf, rng, dt);
-}
-
 static void twinkle_entity(World *w, uint32_t e, float t)
 {
     const uint32_t want = C_RENDER | C_TWINKLE;
@@ -104,16 +116,6 @@ void sys_twinkle(World *w, float t)
 {
     const uint32_t n = w->highWater;
 
-    for (uint32_t e = 0; e < n; ++e) {
-        twinkle_entity(w, e, t);
-    }
-}
-
-void sys_twinkle_parallel(World *w, float t)
-{
-    const uint32_t n = w->highWater;
-
-    OMP_PARALLEL_FOR
     for (uint32_t e = 0; e < n; ++e) {
         twinkle_entity(w, e, t);
     }
@@ -156,14 +158,6 @@ void sys_drift(World *w, SolarSystems *ss, float dt)
     }
 }
 
-void sys_drift_parallel(World *w, SolarSystems *ss, float dt)
-{
-    OMP_PARALLEL_FOR
-    for (int s = 0; s < ss->count; ++s) {
-        drift_system(w, ss, s, dt);
-    }
-}
-
 static void orbit_entity(World *w, uint32_t e, float dt)
 {
     const uint32_t want = C_ORBIT | C_POS;
@@ -184,16 +178,6 @@ void sys_orbit(World *w, float dt)
 {
     const uint32_t n = w->highWater;
 
-    for (uint32_t e = 0; e < n; ++e) {
-        orbit_entity(w, e, dt);
-    }
-}
-
-void sys_orbit_parallel(World *w, float dt)
-{
-    const uint32_t n = w->highWater;
-
-    OMP_PARALLEL_FOR
     for (uint32_t e = 0; e < n; ++e) {
         orbit_entity(w, e, dt);
     }
@@ -234,17 +218,8 @@ int sys_lifetime(World *w, float dt)
     return killed;
 }
 
-int sys_lifetime_parallel(World *w, float dt)
+static int destroy_pending(World *w, uint32_t n)
 {
-    const uint32_t n = w->highWater;
-
-    OMP_PARALLEL_FOR
-    for (uint32_t e = 0; e < n; ++e) {
-        if (lifetime_entity(w, e, dt)) {
-            w->mask[e] |= C_PENDING_DESTROY;
-        }
-    }
-
     int killed = 0;
     for (uint32_t e = 0; e < n; ++e) {
         if ((w->mask[e] & C_PENDING_DESTROY) != 0u) {
@@ -253,6 +228,44 @@ int sys_lifetime_parallel(World *w, float dt)
         }
     }
     return killed;
+}
+
+int sys_update(World *w, TrailBuffer *tb, float t, float dt)
+{
+    const uint32_t n = w->highWater;
+    for (uint32_t e = 0; e < n; ++e) {
+        twinkle_entity(w, e, t);
+        orbit_entity(w, e, dt);
+        if (lifetime_entity(w, e, dt)) {
+            w->mask[e] |= C_PENDING_DESTROY;
+        }
+    }
+
+    sys_trails(w, tb, dt);
+    return destroy_pending(w, n);
+}
+
+int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt)
+{
+    const uint32_t n = w->highWater;
+    if (n < PARALLEL_MIN_ENTITIES) {
+        return sys_update(w, tb, t, dt);
+    }
+
+#ifdef _OPENMP
+    const int threads = sys_parallel_threads();
+#pragma omp parallel for schedule(static, 64) num_threads(threads)
+#endif
+    for (uint32_t e = 0; e < n; ++e) {
+        twinkle_entity(w, e, t);
+        orbit_entity(w, e, dt);
+        if (lifetime_entity(w, e, dt)) {
+            w->mask[e] |= C_PENDING_DESTROY;
+        }
+    }
+
+    sys_trails(w, tb, dt);
+    return destroy_pending(w, n);
 }
 
 /* --- estelas -------------------------------------------------------------- */
@@ -313,30 +326,6 @@ void sys_trails(const World *w, TrailBuffer *tb, float dt)
     tb->accum -= period;
 
     const int head = tb->head;
-    for (int b = 0; b < tb->bodyCount; ++b) {
-        const Entity e = tb->body[b];
-        tb->x[head][b] = w->px[e];
-        tb->y[head][b] = w->py[e];
-    }
-
-    tb->head = (head + 1) % TRAIL_LEN;
-    if (tb->fill < TRAIL_LEN) {
-        tb->fill++;
-    }
-}
-
-void sys_trails_parallel(const World *w, TrailBuffer *tb, float dt)
-{
-    tb->accum += dt;
-
-    const float period = 1.0f / TRAIL_HZ;
-    if (tb->accum < period) {
-        return;
-    }
-    tb->accum -= period;
-
-    const int head = tb->head;
-    OMP_PARALLEL_FOR
     for (int b = 0; b < tb->bodyCount; ++b) {
         const Entity e = tb->body[b];
         tb->x[head][b] = w->px[e];
@@ -473,15 +462,79 @@ static void render_rings(const SolarSystems *ss)
  * ponytail: sin techo de segmentos por frame (bodyCount*TRAIL_LEN, ~196k en
  * el peor caso de N=256 sistemas llenos). Con N tipico (<=20) sobra margen;
  * si un N muy alto lo nota, saltar a dibujar 1 de cada 2 rebanadas. */
+static int append_trail_segment(float *vertices, unsigned char *colors, int first,
+                                Vector2 p0, Vector2 p1, Color color)
+{
+    const float dx = p1.x - p0.x;
+    const float dy = p1.y - p0.y;
+    const float length = sqrtf(dx * dx + dy * dy);
+    if (length <= 0.0f) {
+        return first;
+    }
+
+    const float scale = 2.2f / (2.0f * length);
+    const float rx = -scale * dy;
+    const float ry = scale * dx;
+    const Vector2 points[6] = {
+        { p0.x - rx, p0.y - ry },
+        { p0.x + rx, p0.y + ry },
+        { p1.x - rx, p1.y - ry },
+        { p1.x - rx, p1.y - ry },
+        { p0.x + rx, p0.y + ry },
+        { p1.x + rx, p1.y + ry }
+    };
+
+    for (int i = 0; i < 6; ++i) {
+        const int vertex = first + i;
+        vertices[vertex * 3] = points[i].x;
+        vertices[vertex * 3 + 1] = points[i].y;
+        vertices[vertex * 3 + 2] = 0.0f;
+        colors[vertex * 4] = color.r;
+        colors[vertex * 4 + 1] = color.g;
+        colors[vertex * 4 + 2] = color.b;
+        colors[vertex * 4 + 3] = color.a;
+    }
+    return first + 6;
+}
+
+static int ensure_trail_mesh(int requiredVertices)
+{
+    if (trailMeshReady && trailVertexCapacity >= requiredVertices) {
+        return 1;
+    }
+
+    Mesh next = { 0 };
+    next.vertexCount = requiredVertices;
+    next.triangleCount = requiredVertices / 3;
+    next.vertices = MemAlloc((size_t)requiredVertices * 3 * sizeof(float));
+    next.colors = MemAlloc((size_t)requiredVertices * 4);
+    if (next.vertices == NULL || next.colors == NULL) {
+        MemFree(next.vertices);
+        MemFree(next.colors);
+        return 0;
+    }
+
+    UploadMesh(&next, true);
+    if (trailMeshReady) {
+        UnloadMesh(trailMesh);
+    } else {
+        trailMaterial = LoadMaterialDefault();
+    }
+    trailMesh = next;
+    trailVertexCapacity = requiredVertices;
+    trailMeshReady = 1;
+    return 1;
+}
+
 static void render_trails(const TrailBuffer *tb)
 {
-    if (tb->fill < 2) {
+    const int requiredVertices = (TRAIL_LEN - 1) * tb->bodyCount * 6;
+    if (tb->fill < 2 || !ensure_trail_mesh(requiredVertices)) {
         return;
     }
 
     const int oldest = (tb->head - tb->fill + TRAIL_LEN) % TRAIL_LEN;
-
-    BeginBlendMode(BLEND_ADDITIVE);
+    int vertexCount = 0;
     for (int k = 0; k < tb->fill - 1; ++k) {
         const int i0 = (oldest + k) % TRAIL_LEN;
         const int i1 = (oldest + k + 1) % TRAIL_LEN;
@@ -492,9 +545,23 @@ static void render_trails(const TrailBuffer *tb)
         for (int b = 0; b < tb->bodyCount; ++b) {
             const Vector2 p0 = { tb->x[i0][b], tb->y[i0][b] };
             const Vector2 p1 = { tb->x[i1][b], tb->y[i1][b] };
-            DrawLineEx(p0, p1, 2.2f, (Color){ tb->cr[b], tb->cg[b], tb->cb[b], a });
+            vertexCount = append_trail_segment(
+                trailMesh.vertices, trailMesh.colors, vertexCount, p0, p1,
+                (Color){ tb->cr[b], tb->cg[b], tb->cb[b], a });
         }
     }
+
+    trailMesh.vertexCount = vertexCount;
+    trailMesh.triangleCount = vertexCount / 3;
+    UpdateMeshBuffer(trailMesh, 0, trailMesh.vertices,
+                     vertexCount * 3 * (int)sizeof(float), 0);
+    UpdateMeshBuffer(trailMesh, 3, trailMesh.colors,
+                     vertexCount * 4 * (int)sizeof(unsigned char), 0);
+
+    BeginBlendMode(BLEND_ADDITIVE);
+    rlDisableBackfaceCulling();
+    DrawMesh(trailMesh, trailMaterial, MatrixIdentity());
+    rlEnableBackfaceCulling();
     EndBlendMode();
 }
 
@@ -606,8 +673,15 @@ void sys_render(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
     render_specular(w, ss);
 }
 
-void sys_render_parallel(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
-                         int showRings, int showTrails)
+void sys_render_unload(void)
 {
-    sys_render(w, ss, tb, showRings, showTrails);
+    if (!trailMeshReady) {
+        return;
+    }
+    UnloadMesh(trailMesh);
+    UnloadMaterial(trailMaterial);
+    trailMesh = (Mesh){ 0 };
+    trailMaterial = (Material){ 0 };
+    trailMeshReady = 0;
+    trailVertexCapacity = 0;
 }

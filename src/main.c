@@ -20,26 +20,13 @@
 #include "systems.h"
 
 #ifdef PARALLEL_SYSTEMS
-#include <omp.h>
 #define SYSTEMS_MODE "parallel"
-#define SYSTEMS_THREADS() omp_get_max_threads()
-#define active_sys_spawn_stars sys_spawn_stars_parallel
-#define active_sys_drift sys_drift_parallel
-#define active_sys_twinkle sys_twinkle_parallel
-#define active_sys_orbit sys_orbit_parallel
-#define active_sys_trails sys_trails_parallel
-#define active_sys_lifetime sys_lifetime_parallel
-#define active_sys_render sys_render_parallel
+#define SYSTEMS_THREADS() sys_parallel_threads()
+#define active_sys_update sys_update_parallel
 #else
 #define SYSTEMS_MODE "sequential"
 #define SYSTEMS_THREADS() 1
-#define active_sys_spawn_stars sys_spawn_stars
-#define active_sys_drift sys_drift
-#define active_sys_twinkle sys_twinkle
-#define active_sys_orbit sys_orbit
-#define active_sys_trails sys_trails
-#define active_sys_lifetime sys_lifetime
-#define active_sys_render sys_render
+#define active_sys_update sys_update
 #endif
 
 #define DEFAULT_WIDTH  1280
@@ -465,8 +452,8 @@ int main(int argc, char **argv)
             const double t0 = GetTime();
 
             simTime += dt;
-            active_sys_spawn_stars(world, &sf, &rng, dt);
-            active_sys_drift(world, ss, dt);
+            sys_spawn_stars(world, &sf, &rng, dt);
+            sys_drift(world, ss, dt);
             if (cfg.deadstar) {
                 const float moveX = (float)IsKeyDown(KEY_D) - (float)IsKeyDown(KEY_A);
                 const float moveY = (float)IsKeyDown(KEY_S) - (float)IsKeyDown(KEY_W);
@@ -477,10 +464,7 @@ int main(int argc, char **argv)
                 deathstar_update(&deathstar, world, ss, tb, &rng, cfg.systems,
                                  (float)curW, (float)curH, dt);
             }
-            active_sys_twinkle(world, simTime);
-            active_sys_orbit(world, dt);
-            active_sys_trails(world, tb, dt);
-            sf.liveStars -= active_sys_lifetime(world, dt);
+            sf.liveStars -= active_sys_update(world, tb, simTime, dt);
 
             updateAccum += GetTime() - t0;
             updatedFrames++;
@@ -488,7 +472,7 @@ int main(int argc, char **argv)
 
         BeginDrawing();
         ClearBackground(bg);
-        active_sys_render(world, ss, tb, showRings, showTrails);
+        sys_render(world, ss, tb, showRings, showTrails);
         if (cfg.deadstar) {
             deathstar_render(&deathstar, curW, curH);
         }
@@ -556,6 +540,7 @@ int main(int argc, char **argv)
     if (cfg.deadstar) {
         deathstar_unload(&deathstar);
     }
+    sys_render_unload();
     CloseWindow();
 
     if (frame > 0 && elapsed > 0.0) {

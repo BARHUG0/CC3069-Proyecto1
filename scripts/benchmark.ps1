@@ -33,7 +33,7 @@ param(
     [ValidateSet("sequential", "parallel")]
     [string]$Version = "sequential",
 
-    [ValidateRange(0, 256)]
+    [ValidateRange(0, 4)]
     [int]$Threads = 0,
 
     [string]$OutputDirectory = "benchmark-results",

@@ -5,8 +5,7 @@
  * estos bucles y los datos viven en World.
  *
  * Orden obligatorio por fotograma:
- *      sys_spawn_stars -> sys_drift -> sys_twinkle -> sys_orbit ->
- *      sys_trails -> sys_lifetime -> sys_render
+ *      sys_spawn_stars -> sys_drift -> sys_update -> sys_render
  *
  * La dependencia real es twinkle antes de lifetime: twinkle ESCRIBE alpha con
  * el brillo del centelleo y lifetime lo MULTIPLICA por el sobre de aparicion y
@@ -16,6 +15,10 @@
  * de sus planetas, px/py de su sol) para que sys_orbit reproyecte sobre el
  * centro ya actualizado del fotograma. sys_trails va despues de sys_orbit:
  * muestrea las posiciones ya definitivas del fotograma.
+ *
+ * Las dos versiones fusionan twinkle, orbit y lifetime en un recorrido. En
+ * OpenMP, la unica union ocurre al terminar ese recorrido, antes de que trails
+ * lea las posiciones. Con cargas pequenas usa el recorrido secuencial.
  *
  * sys_render (systems.c) dibuja en 3 pasadas: aditiva (resplandor solar,
  * atenuado por capa) -> OPACA por capa/sistema (nucleo del sol + planetas —
@@ -51,10 +54,8 @@ void starfield_init(World *w, StarField *sf, Rng *rng,
 
 /* Crea estrellas hasta acercarse a targetStars. Devuelve cuantas creo. */
 int sys_spawn_stars(World *w, StarField *sf, Rng *rng, float dt);
-int sys_spawn_stars_parallel(World *w, StarField *sf, Rng *rng, float dt);
 
 void sys_drift(World *w, SolarSystems *ss, float dt);
-void sys_drift_parallel(World *w, SolarSystems *ss, float dt);
 
 /* --- estelas -------------------------------------------------------------
  * Estado global (como StarField): no es un dato por entidad, asi que vive
@@ -91,7 +92,6 @@ void trails_init(TrailBuffer *tb, const World *w, const SolarSystems *ss);
 
 /* Empuja una rebanada de posiciones cuando toca (a TRAIL_HZ). */
 void sys_trails(const World *w, TrailBuffer *tb, float dt);
-void sys_trails_parallel(const World *w, TrailBuffer *tb, float dt);
 
 /* Alta/baja incremental de un sistema completo (sol + planetas) en tb, sin
  * tocar los demas cuerpos ni el historial compartido head/fill. Llamar
@@ -107,23 +107,22 @@ void trails_add_system(TrailBuffer *tb, const World *w, const SolarSystems *ss, 
 /* alpha = twBase + twAmp * sin(twFreq * t + twPhase). Solo lectura/escritura
  * por entidad, sin variables compartidas: paralelizable tal cual. */
 void sys_twinkle(World *w, float t);
-void sys_twinkle_parallel(World *w, float t);
 
 /* Integra el angulo orbital y proyecta la posicion sobre la elipse.
  * Tambien es puramente por entidad. */
 void sys_orbit(World *w, float dt);
-void sys_orbit_parallel(World *w, float dt);
 
 /* Descuenta vida, aplica el sobre de fundido y destruye lo agotado.
  * Devuelve cuantas entidades destruyo (para actualizar liveStars). */
 int sys_lifetime(World *w, float dt);
-int sys_lifetime_parallel(World *w, float dt);
+int sys_update(World *w, TrailBuffer *tb, float t, float dt);
+int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt);
+int sys_parallel_threads(void);
 
 /* Dibuja todo. Debe correr entre BeginDrawing/EndDrawing y solo en el hilo
  * principal: OpenGL no es reentrante. */
 void sys_render(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
                 int showRings, int showTrails);
-void sys_render_parallel(const World *w, const SolarSystems *ss, const TrailBuffer *tb,
-                         int showRings, int showTrails);
+void sys_render_unload(void);
 
 #endif /* SYSTEMS_H */
