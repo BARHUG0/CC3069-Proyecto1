@@ -6,6 +6,7 @@ deathstar_test
 systems_test
 .DS_Store
 .tokensave/
+__pycache__/
 
 
 TEMP/

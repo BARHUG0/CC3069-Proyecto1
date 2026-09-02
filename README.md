@@ -125,10 +125,34 @@ Una ejecución interrumpida puede continuar a partir de su archivo `runs`:
 
 El *speedup* no utiliza la búsqueda dinámica de estabilidad. El modo `speedup`
 ejecuta las dos versiones con exactamente los mismos valores fijos de `N`,
-500 estrellas, la misma semilla y la misma resolución:
+500 estrellas, la misma semilla y la misma resolución.
+
+### macOS / Linux — `scripts/benchmark.sh`
+
+```bash
+scripts/benchmark.sh                          # VERSION=sequential (default)
+VERSION=parallel THREADS=4 scripts/benchmark.sh
+SYSTEMS="1000 5000 25000 100000 200000" RUNS=10 scripts/benchmark.sh
+scripts/benchmark.sh --ceiling 1000000        # 1 punto cualitativo (N enorme, sin --benchmark)
+```
+
+Necesita una sesión gráfica activa (`--benchmark` abre una ventana real). Escribe
+`runs-speedup-*`, `summary-speedup-*` y `hardware-speedup-*` en `benchmark-results/`
+con el mismo esquema que la versión PowerShell.
+
+Después:
+
+```bash
+python3 scripts/build_report.py               # -> benchmark-results/report.html
+```
+
+`report.html` es una página autocontenida (deck + informe) con las gráficas de
+speedup, eficiencia, FPS y ms de actualización, y las tablas de la bitácora.
+
+### Windows — `scripts/benchmark.ps1`
 
 ```powershell
-$systems = 1, 32, 64, 128, 256
+$systems = 1000, 5000, 25000, 100000, 200000
 .\scripts\benchmark.ps1 -Mode speedup -Version sequential -SystemsValues $systems
 .\scripts\benchmark.ps1 -Mode speedup -Version parallel -Threads 4 -SystemsValues $systems
 ```
