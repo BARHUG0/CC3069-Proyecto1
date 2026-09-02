@@ -509,6 +509,8 @@ int main(int argc, char **argv)
                     benchmarkStart = now;
                     benchmarkSampleStart = now;
                     benchmarkNextSample = now + 1.0;
+                    updateAccum = 0.0;
+                    updatedFrames = 0;
                 }
             } else {
                 benchmarkFrames++;
@@ -559,13 +561,16 @@ int main(int argc, char **argv)
     CloseWindow();
 
     if (frame > 0 && elapsed > 0.0) {
+        const double averageUpdateMs = (updatedFrames > 0)
+            ? updateAccum * 1000.0 / (double)updatedFrames
+            : 0.0;
         printf("\n--- resumen ---\n");
         printf("Version            : %s (%d hilo(s))\n", SYSTEMS_MODE, SYSTEMS_THREADS());
         printf("Fotogramas        : %ld en %.2f s  (%.1f FPS medio)\n",
                frame, elapsed, (double)frame / elapsed);
         if (updatedFrames > 0) {
             printf("Actualizacion ECS : %.3f ms/fotograma (media, sin render)\n",
-                   updateAccum * 1000.0 / (double)updatedFrames);
+                   averageUpdateMs);
         }
         printf("Sistemas solares  : %d   Planetas: %d\n", ss->count, ss->totalPlanets);
         printf("Estrellas vivas   : %d / %d\n", sf.liveStars, sf.targetStars);
@@ -584,12 +589,12 @@ int main(int argc, char **argv)
                    benchmarkSecondMin, benchmarkCount);
             printf("GetFPS            : %.2f FPS medio, minimo %d\n",
                    getFpsAverage, benchmarkMin);
-            printf("BENCHMARK_CSV,%s,%d,%u,%d,%d,%d,%d,%.6f,%ld,%.3f,%.3f,%.3f,%d,%d\n",
+            printf("BENCHMARK_CSV,%s,%d,%u,%d,%d,%d,%d,%.6f,%ld,%.3f,%.3f,%.3f,%d,%d,%.6f\n",
                    SYSTEMS_MODE, SYSTEMS_THREADS(), seed,
                    cfg.systems, cfg.stars, cfg.width, cfg.height,
                    benchmarkElapsed, benchmarkFrames, averageFps,
                    benchmarkSecondMin, getFpsAverage, benchmarkMin,
-                   benchmarkCount);
+                   benchmarkCount, averageUpdateMs);
         }
     }
 

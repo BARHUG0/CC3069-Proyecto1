@@ -82,13 +82,13 @@ Debe ejecutarse con `--no-vsync` y sin `--target-fps`:
 screensaver 256 --stars 500 --seed 20260831 --width 1280 --height 720 --no-vsync --benchmark
 ```
 
-El script de PowerShell compila el programa y busca por defecto el máximo de
-sistemas estable a 10, 30, 60, 90 y 120 FPS con 500 estrellas. Ejecuta cinco
-corridas por input y guarda las mediciones y su resumen en
-`benchmark-results`:
+El modo `stability` busca el máximo de sistemas estable a 10, 30, 60, 90 y
+120 FPS con 500 estrellas. La búsqueda se ejecuta por separado para cada
+versión:
 
 ```powershell
-.\scripts\benchmark.ps1
+.\scripts\benchmark.ps1 -Mode stability -Version sequential
+.\scripts\benchmark.ps1 -Mode stability -Version parallel -Threads 4
 ```
 
 El archivo `runs` contiene cada corrida con sus parámetros, segundos,
@@ -106,7 +106,7 @@ Cada corrida tarda cerca de 13 segundos, incluidos 3 segundos de calentamiento.
 Para una revisión rápida puede usarse:
 
 ```powershell
-.\scripts\benchmark.ps1 -TargetFpsValues 60 -MaxSystems 64 -Runs 2
+.\scripts\benchmark.ps1 -Mode stability -TargetFpsValues 60 -MaxSystems 64 -Runs 2
 ```
 
 Una ejecución interrumpida puede continuar a partir de su archivo `runs`:
@@ -115,28 +115,38 @@ Una ejecución interrumpida puede continuar a partir de su archivo `runs`:
 .\scripts\benchmark.ps1 -ResumeRunsFile .\benchmark-results\runs-AAAAMMDD-HHMMSS.csv
 ```
 
-La versión paralela usa OpenMP. La cantidad de hilos puede fijarse con
-`OMP_NUM_THREADS` o con el parámetro `-Threads` del benchmark:
+## Medición de speedup
+
+El *speedup* no utiliza la búsqueda dinámica de estabilidad. El modo `speedup`
+ejecuta las dos versiones con exactamente los mismos valores fijos de `N`,
+500 estrellas, la misma semilla y la misma resolución:
 
 ```powershell
-$env:OMP_NUM_THREADS = 4
-.\screensaver_parallel.exe 256 --no-vsync --benchmark
-
-.\scripts\benchmark.ps1 -Version sequential
-.\scripts\benchmark.ps1 -Version parallel -Threads 4
+$systems = 1, 32, 64, 128, 256
+.\scripts\benchmark.ps1 -Mode speedup -Version sequential -SystemsValues $systems
+.\scripts\benchmark.ps1 -Mode speedup -Version parallel -Threads 4 -SystemsValues $systems
 ```
 
-Para calcular el *speedup* y la eficiencia a partir de los dos archivos
-`summary` producidos:
+Después se comparan los dos archivos `summary-speedup` producidos:
 
 ```powershell
 .\scripts\compare-benchmarks.ps1 `
-  -SequentialSummary .\benchmark-results\summary-secuencial.csv `
-  -ParallelSummary .\benchmark-results\summary-paralelo.csv
+  -SequentialSummary .\benchmark-results\summary-speedup-sequential-AAAAMMDD-HHMMSS.csv `
+  -ParallelSummary .\benchmark-results\summary-speedup-parallel-AAAAMMDD-HHMMSS.csv
 ```
 
-El *speedup* se calcula como `FPS paralelo / FPS secuencial`. La eficiencia
-es `speedup / hilos * 100`.
+El comparador exige que ambos resúmenes contengan exactamente los mismos
+valores de `N` y la misma configuración. El *speedup* se calcula con el tiempo
+medio de actualización ECS, sin render:
+
+`speedup = tiempo secuencial / tiempo paralelo`
+
+La eficiencia se calcula como `speedup / hilos * 100`. Los FPS se conservan
+como dato adicional, pero no se usan para calcular el *speedup* porque el
+renderizado permanece serial.
+
+La cantidad de hilos OpenMP puede fijarse con `OMP_NUM_THREADS` o con el
+parámetro `-Threads`.
 
 Se eligió paralelismo de datos porque los sistemas recorren arreglos SoA y
 cada iteración actualiza una entidad o sistema solar independiente. OpenMP

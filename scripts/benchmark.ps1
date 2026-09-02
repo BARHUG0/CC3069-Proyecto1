@@ -21,6 +21,13 @@ param(
     [ValidateRange(1, 100)]
     [int]$Runs = 5,
 
+    [ValidateSet("stability", "speedup")]
+    [string]$Mode = "stability",
+
+    [ValidateNotNullOrEmpty()]
+    [ValidateRange(1, 256)]
+    [int[]]$SystemsValues = @(1, 32, 64, 128, 256),
+
     [string]$MakeCommand = "mingw32-make",
 
     [ValidateSet("sequential", "parallel")]
@@ -45,6 +52,7 @@ $executable = Join-Path $projectRoot $executableName
 $resultsPath = Join-Path $projectRoot $OutputDirectory
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $TargetFpsValues = @($TargetFpsValues | Sort-Object -Unique)
+$SystemsValues = @($SystemsValues | Sort-Object -Unique)
 $previousOmpThreads = $env:OMP_NUM_THREADS
 if ($Version -eq "parallel" -and $Threads -gt 0) {
     $env:OMP_NUM_THREADS = "$Threads"
@@ -106,10 +114,10 @@ try {
     }
 
     New-Item -ItemType Directory -Path $resultsPath -Force | Out-Null
-    $runsFile = Join-Path $resultsPath "runs-$timestamp.csv"
-    $summaryFile = Join-Path $resultsPath "summary-$timestamp.csv"
-    $stabilityFile = Join-Path $resultsPath "stability-points-$timestamp.csv"
-    $hardwareFile = Join-Path $resultsPath "hardware-$timestamp.json"
+    $runsFile = Join-Path $resultsPath "runs-$Mode-$Version-$timestamp.csv"
+    $summaryFile = Join-Path $resultsPath "summary-$Mode-$Version-$timestamp.csv"
+    $stabilityFile = Join-Path $resultsPath "stability-points-$Version-$timestamp.csv"
+    $hardwareFile = Join-Path $resultsPath "hardware-$Mode-$Version-$timestamp.json"
     $hardware | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $hardwareFile -Encoding utf8
 
     $rows = [Collections.Generic.List[object]]::new()
@@ -117,8 +125,17 @@ try {
         $resumePath = (Resolve-Path -LiteralPath $ResumeRunsFile).Path
         foreach ($row in Import-Csv -LiteralPath $resumePath) {
             if ([int]$row.Stars -ne $Stars -or [int]$row.Width -ne $Width -or
-                [int]$row.Height -ne $Height -or [uint32]$row.Seed -ne $Seed) {
-                throw "El archivo de reanudacion no coincide con estrellas, resolucion o semilla."
+                [int]$row.Height -ne $Height -or [uint32]$row.Seed -ne $Seed -or
+                "$($row.Version)" -ne $Version -or "$($row.Mode)" -ne $Mode) {
+                throw "El archivo de reanudacion no coincide con version, estrellas, resolucion o semilla."
+            }
+            if ($Mode -eq "speedup" -and
+                $SystemsValues -notcontains [int]$row.Systems) {
+                throw "El archivo de reanudacion contiene una carga fuera de SystemsValues."
+            }
+            if ($Version -eq "parallel" -and $Threads -gt 0 -and
+                [int]$row.Threads -ne $Threads) {
+                throw "El archivo de reanudacion usa otra cantidad de hilos."
             }
             $rows.Add($row)
         }
@@ -143,7 +160,19 @@ try {
         }
         $variance = ($fps | ForEach-Object { [math]::Pow($_ - $mean, 2) } |
             Measure-Object -Average).Average
+        $updateMs = @($systemRows | ForEach-Object { [double]$_.UpdateMs } | Sort-Object)
+        $updateMean = ($updateMs | Measure-Object -Average).Average
+        if ($updateMs.Count % 2 -eq 0) {
+            $middle = $updateMs.Count / 2
+            $updateMedian = ($updateMs[$middle - 1] + $updateMs[$middle]) / 2.0
+        } else {
+            $updateMedian = $updateMs[[math]::Floor($updateMs.Count / 2)]
+        }
+        $updateVariance = ($updateMs |
+            ForEach-Object { [math]::Pow($_ - $updateMean, 2) } |
+            Measure-Object -Average).Average
         $measurement = [pscustomobject]@{
+            Mode = "$($systemRows[0].Mode)"
             Version = "$($systemRows[0].Version)"
             Threads = [int]$systemRows[0].Threads
             Systems = $Systems
@@ -157,6 +186,9 @@ try {
             WorstOneSecondFps = [math]::Round(
                 ($systemRows.OneSecondMinFps | Measure-Object -Minimum).Minimum, 3)
             StandardDeviationFps = [math]::Round([math]::Sqrt($variance), 3)
+            MeanUpdateMs = [math]::Round($updateMean, 6)
+            MedianUpdateMs = [math]::Round($updateMedian, 6)
+            StandardDeviationUpdateMs = [math]::Round([math]::Sqrt($updateVariance), 6)
         }
         $measurements[$Systems] = $measurement
         return $measurement
@@ -201,7 +233,7 @@ try {
             }
 
             $fields = $benchmarkLines[0] -split ","
-            if ($fields.Count -ne 15) {
+            if ($fields.Count -ne 16) {
                 throw "La corrida $run con $Systems sistemas produjo una linea BENCHMARK_CSV invalida."
             }
             if ([int]$fields[14] -ne 10) {
@@ -221,6 +253,7 @@ try {
                 OperatingSystem = $os
                 PowerPlan = $powerPlan
                 Gcc = $gcc
+                Mode = $Mode
                 Version = $fields[1]
                 Threads = [int]$fields[2]
                 Seed = [uint32]$fields[3]
@@ -235,6 +268,7 @@ try {
                 GetFpsAverage = [double]::Parse($fields[12], [Globalization.CultureInfo]::InvariantCulture)
                 GetFpsMin = [int]$fields[13]
                 Samples = [int]$fields[14]
+                UpdateMs = [double]::Parse($fields[15], [Globalization.CultureInfo]::InvariantCulture)
             })
             $acceptedRuns++
         }
@@ -322,36 +356,44 @@ try {
         }
     }
 
-    $stabilityRows = @(Find-StabilityPoints)
-    $conflicts = @()
-    foreach ($targetFps in $TargetFpsValues) {
-        $ordered = @($measurements.Values |
-            Where-Object { [int]$_.Systems -ge 1 } |
-            Sort-Object Systems)
-        for ($i = 0; $i -lt $ordered.Count; $i++) {
-            for ($j = $i + 1; $j -lt $ordered.Count; $j++) {
-                if ($ordered[$i].WorstOneSecondFps -lt $targetFps -and
-                    $ordered[$j].WorstOneSecondFps -ge $targetFps) {
-                    $conflicts += $ordered[$i].Systems
-                    $conflicts += $ordered[$j].Systems
+    $stabilityRows = @()
+    if ($Mode -eq "speedup") {
+        foreach ($systems in $SystemsValues) {
+            Measure-Systems -Systems $systems | Out-Null
+        }
+    } else {
+        $stabilityRows = @(Find-StabilityPoints)
+        $conflicts = @()
+        foreach ($targetFps in $TargetFpsValues) {
+            $ordered = @($measurements.Values |
+                Where-Object { [int]$_.Systems -ge 1 } |
+                Sort-Object Systems)
+            for ($i = 0; $i -lt $ordered.Count; $i++) {
+                for ($j = $i + 1; $j -lt $ordered.Count; $j++) {
+                    if ($ordered[$i].WorstOneSecondFps -lt $targetFps -and
+                        $ordered[$j].WorstOneSecondFps -ge $targetFps) {
+                        $conflicts += $ordered[$i].Systems
+                        $conflicts += $ordered[$j].Systems
+                    }
                 }
             }
         }
-    }
 
-    if ($conflicts.Count -gt 0) {
-        $conflicts = @($conflicts |
-            Where-Object { [int]$_ -ge 1 } |
-            Sort-Object -Unique)
-        Write-Host "Repitiendo puntos con resultados no monotonicos: $($conflicts -join ', ')"
-        foreach ($systems in $conflicts) {
-            Measure-Systems -Systems $systems -AdditionalRuns | Out-Null
+        if ($conflicts.Count -gt 0) {
+            $conflicts = @($conflicts |
+                Where-Object { [int]$_ -ge 1 } |
+                Sort-Object -Unique)
+            Write-Host "Repitiendo puntos con resultados no monotonicos: $($conflicts -join ', ')"
+            foreach ($systems in $conflicts) {
+                Measure-Systems -Systems $systems -AdditionalRuns | Out-Null
+            }
+            $stabilityRows = @(Find-StabilityPoints)
         }
-        $stabilityRows = @(Find-StabilityPoints)
     }
 
     $summaryRows = @($measurements.Values | Sort-Object Systems | ForEach-Object {
         [pscustomobject]@{
+            Mode = $_.Mode
             Version = $_.Version
             Threads = $_.Threads
             Systems = $_.Systems
@@ -364,17 +406,24 @@ try {
             MedianFps = $_.MedianFps
             WorstOneSecondFps = $_.WorstOneSecondFps
             StandardDeviationFps = $_.StandardDeviationFps
+            MeanUpdateMs = $_.MeanUpdateMs
+            MedianUpdateMs = $_.MedianUpdateMs
+            StandardDeviationUpdateMs = $_.StandardDeviationUpdateMs
             RunsFile = $runsFile
             HardwareFile = $hardwareFile
         }
     })
     $summaryRows | Export-Csv -LiteralPath $summaryFile -NoTypeInformation -Encoding utf8
-    $stabilityRows | Export-Csv -LiteralPath $stabilityFile -NoTypeInformation -Encoding utf8
 
-    $stabilityRows | Format-Table TargetFps, MaxStableSystems, Stars, WorstOneSecondFps
+    if ($Mode -eq "stability") {
+        $stabilityRows | Export-Csv -LiteralPath $stabilityFile -NoTypeInformation -Encoding utf8
+        $stabilityRows | Format-Table TargetFps, MaxStableSystems, Stars, WorstOneSecondFps
+        Write-Host "Puntos de estabilidad: $stabilityFile"
+    } else {
+        $summaryRows | Format-Table Systems, MeanUpdateMs, MedianUpdateMs, MeanFps
+    }
     Write-Host "Resultados: $runsFile"
     Write-Host "Resumen: $summaryFile"
-    Write-Host "Puntos de estabilidad: $stabilityFile"
     Write-Host "Hardware: $hardwareFile"
 }
 finally {
