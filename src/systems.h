@@ -123,8 +123,10 @@ void sys_orbit(World *w, float dt);
  * Devuelve cuantas entidades destruyo (para actualizar liveStars). */
 int sys_lifetime(World *w, float dt);
 int sys_update(World *w, TrailBuffer *tb, float t, float dt);
-int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt);
-int sys_parallel_threads(void);
+/* threads <= 0 usa el default (min(omp_get_max_threads(), 4)); threads > 0 fuerza
+ * exactamente esa cantidad de hilos OpenMP para el recorrido. */
+int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt, int threads);
+int sys_parallel_threads(int requested);
 
 /* Dibuja todo. Debe correr entre BeginDrawing/EndDrawing y solo en el hilo
  * principal: OpenGL no es reentrante. */

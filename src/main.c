@@ -55,6 +55,7 @@ typedef struct Config {
     int          targetFps;
     int          benchmark;
     int          parallel;   /* 0 = sys_update, 1 = sys_update_parallel */
+    int          threads;    /* 0 = default (min(omp_max,4)); >0 = exacto */
 } Config;
 
 static void print_usage(const char *exe)
@@ -77,6 +78,7 @@ static void print_usage(const char *exe)
     printf("  --target-fps F     limitar la ejecucion a F FPS con raylib\n");
     printf("  --parallel         actualizar los sistemas con OpenMP (varios hilos)\n");
     printf("  --sequential       actualizar los sistemas en un solo hilo (por defecto)\n");
+    printf("  --threads T        con --parallel: forzar T hilos (0 = default 4; permite oversubscription)\n");
     printf("  --benchmark        medir FPS durante 10 s tras 3 s de calentamiento\n");
     printf("  --frames K         salir tras K fotogramas (para pruebas)\n");
     printf("  --screenshot RUTA  guardar un PNG y seguir (para pruebas)\n");
@@ -122,6 +124,7 @@ static int parse_args(int argc, char **argv, Config *cfg)
     cfg->targetFps  = 0;
     cfg->benchmark  = 0;
     cfg->parallel   = 0;
+    cfg->threads    = 0;
 
     for (int i = 1; i < argc; ++i) {
         const char *a = argv[i];
@@ -166,6 +169,9 @@ static int parse_args(int argc, char **argv, Config *cfg)
             cfg->parallel = 1;
         } else if (strcmp(a, "--sequential") == 0) {
             cfg->parallel = 0;
+        } else if (strcmp(a, "--threads") == 0) {
+            if (!parse_long(argc, argv, &i, a, &v)) return 1;
+            cfg->threads = (int)v;
         } else if (strcmp(a, "--benchmark") == 0) {
             cfg->benchmark = 1;
         } else if (strcmp(a, "--screenshot") == 0) {
@@ -218,6 +224,10 @@ static int parse_args(int argc, char **argv, Config *cfg)
     }
     if (cfg->targetFps < 0) {
         fprintf(stderr, "Error: --target-fps debe ser mayor que cero.\n");
+        return 1;
+    }
+    if (cfg->threads < 0 || cfg->threads > 1024) {
+        fprintf(stderr, "Error: --threads debe estar entre 0 y 1024.\n");
         return 1;
     }
     if (cfg->benchmark && cfg->vsync) {
@@ -483,7 +493,7 @@ int main(int argc, char **argv)
                                  (float)curW, (float)curH, dt);
             }
             sf.liveStars -= cfg.parallel
-                ? sys_update_parallel(world, tb, simTime, dt)
+                ? sys_update_parallel(world, tb, simTime, dt, cfg.threads)
                 : sys_update(world, tb, simTime, dt);
 
             updateAccum += GetTime() - t0;
@@ -568,7 +578,7 @@ int main(int argc, char **argv)
             ? updateAccum * 1000.0 / (double)updatedFrames
             : 0.0;
         const char *systemsMode = cfg.parallel ? "parallel" : "sequential";
-        const int   systemsThreads = cfg.parallel ? sys_parallel_threads() : 1;
+        const int   systemsThreads = cfg.parallel ? sys_parallel_threads(cfg.threads) : 1;
         printf("\n--- resumen ---\n");
         printf("Version            : %s (%d hilo(s))\n", systemsMode, systemsThreads);
         printf("Fotogramas        : %ld en %.2f s  (%.1f FPS medio)\n",

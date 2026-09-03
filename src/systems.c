@@ -16,19 +16,27 @@
 #define FADE_OUT_SECS 1.2f
 #define C_PENDING_DESTROY (1u << 31)
 #define PARALLEL_MIN_ENTITIES 6144u
-#define PARALLEL_MAX_THREADS 4
+#define PARALLEL_DEFAULT_THREADS 4    /* sin --threads: bueno para el screensaver */
+#define PARALLEL_MAX_THREADS 1024     /* tope de cordura para --threads N */
 
 static Mesh trailMesh;
 static Material trailMaterial;
 static int trailMeshReady;
 static int trailVertexCapacity;
 
-int sys_parallel_threads(void)
+/* requested <= 0: el default (min(omp_get_max_threads(), PARALLEL_DEFAULT_THREADS)).
+ * requested > 0: exactamente esa cantidad (se permite oversubscription — util para
+ * medir donde colapsa la eficiencia), acotada a PARALLEL_MAX_THREADS. */
+int sys_parallel_threads(int requested)
 {
 #ifdef _OPENMP
+    if (requested > 0) {
+        return requested < PARALLEL_MAX_THREADS ? requested : PARALLEL_MAX_THREADS;
+    }
     const int available = omp_get_max_threads();
-    return available < PARALLEL_MAX_THREADS ? available : PARALLEL_MAX_THREADS;
+    return available < PARALLEL_DEFAULT_THREADS ? available : PARALLEL_DEFAULT_THREADS;
 #else
+    (void)requested;
     return 1;
 #endif
 }
@@ -248,7 +256,7 @@ int sys_update(World *w, TrailBuffer *tb, float t, float dt)
     return destroy_pending(w, n);
 }
 
-int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt)
+int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt, int threads)
 {
     const uint32_t n = w->highWater;
     if (n < PARALLEL_MIN_ENTITIES) {
@@ -256,8 +264,8 @@ int sys_update_parallel(World *w, TrailBuffer *tb, float t, float dt)
     }
 
 #ifdef _OPENMP
-    const int threads = sys_parallel_threads();
-#pragma omp parallel for schedule(static, 64) num_threads(threads)
+    const int nthreads = sys_parallel_threads(threads);
+#pragma omp parallel for schedule(static, 64) num_threads(nthreads)
 #endif
     for (uint32_t e = 0; e < n; ++e) {
         twinkle_entity(w, e, t);

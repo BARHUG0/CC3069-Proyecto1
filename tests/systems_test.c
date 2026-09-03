@@ -268,7 +268,7 @@ int main(void)
     const int sequentialKilled =
         sys_update(sequentialWorld, sequentialTrails, 3.5f, 20.0f);
     const int parallelKilled =
-        sys_update_parallel(parallelWorld, parallelTrails, 3.5f, 20.0f);
+        sys_update_parallel(parallelWorld, parallelTrails, 3.5f, 20.0f, 0);
     assert(sequentialKilled == parallelKilled);
     assert(sequentialKilled == sequentialStars.targetStars);
     assert_trails_equal(sequentialTrails, parallelTrails);
@@ -291,7 +291,30 @@ int main(void)
     sys_drift(sequentialWorld, sequentialSystems, 0.016f);
     sys_drift(parallelWorld, parallelSystems, 0.016f);
     assert(sys_update(sequentialWorld, sequentialTrails, 1.0f, 0.016f) ==
-           sys_update_parallel(parallelWorld, parallelTrails, 1.0f, 0.016f));
+           sys_update_parallel(parallelWorld, parallelTrails, 1.0f, 0.016f, 0));
+    assert_trails_equal(sequentialTrails, parallelTrails);
+    assert_worlds_equal(sequentialWorld, parallelWorld);
+
+    /* Ruta OpenMP de verdad: > PARALLEL_MIN_ENTITIES (6144) para no caer al
+     * recorrido secuencial, y con oversubscription (8 hilos) el resultado debe
+     * seguir siendo bit a bit el mismo que en 1 hilo. */
+    rng_seed(&sequentialRng, 42u);
+    rng_seed(&parallelRng, 42u);
+    ecs_reset(sequentialWorld);
+    ecs_reset(parallelWorld);
+    solar_systems_reset(sequentialSystems);
+    solar_systems_reset(parallelSystems);
+    spawn_solar_systems(sequentialWorld, sequentialSystems, &sequentialRng, 200, 1280.0f, 720.0f);
+    spawn_solar_systems(parallelWorld, parallelSystems, &parallelRng, 200, 1280.0f, 720.0f);
+    starfield_init(sequentialWorld, &sequentialStars, &sequentialRng, 12000, 1280.0f, 720.0f);
+    starfield_init(parallelWorld, &parallelStars, &parallelRng, 12000, 1280.0f, 720.0f);
+    trails_init(sequentialTrails, sequentialWorld, sequentialSystems);
+    trails_init(parallelTrails, parallelWorld, parallelSystems);
+    assert(sequentialWorld->highWater >= 6144u);
+    sys_drift(sequentialWorld, sequentialSystems, 0.016f);
+    sys_drift(parallelWorld, parallelSystems, 0.016f);
+    assert(sys_update(sequentialWorld, sequentialTrails, 2.0f, 0.05f) ==
+           sys_update_parallel(parallelWorld, parallelTrails, 2.0f, 0.05f, 8));
     assert_trails_equal(sequentialTrails, parallelTrails);
     assert_worlds_equal(sequentialWorld, parallelWorld);
 
