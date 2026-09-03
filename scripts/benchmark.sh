@@ -10,30 +10,31 @@
 # "Failed to initialize platform".
 #
 # Uso:
-#   scripts/benchmark.sh                         # VERSION=sequential (default)
-#   VERSION=parallel THREADS=4 scripts/benchmark.sh
+#   scripts/benchmark.sh                          # VERSION=sequential (default)
+#   VERSION=parallel scripts/benchmark.sh         # barre THREADS_LIST hilos
 #   SYSTEMS="1000 5000 25000" RUNS=10 scripts/benchmark.sh
-#   scripts/benchmark.sh --ceiling 1000000       # 1 punto cualitativo, sin --benchmark
+#   scripts/benchmark.sh --ceiling 1000000        # 1 punto cualitativo, sin --benchmark
 #
 # Variables de entorno (con sus valores por defecto):
-#   SYSTEMS="1000 5000 25000 100000 200000"   lista de N a medir
-#   RUNS=10                                    corridas por N (el PDF pide >=10)
+#   SYSTEMS="1000 5000 15000 30000 50000"     lista de N a medir (>=1000 para que
+#                                             la ruta paralela se active)
+#   RUNS=10                                    corridas por (N, hilos) — el PDF pide >=10
+#   THREADS_LIST="1 2 4 8 16"                  conteos de hilos a barrer (solo parallel)
 #   STARS=500  SEED=20260831  WIDTH=1280  HEIGHT=720
 #   VERSION=sequential|parallel               que ruta de actualizacion medir
-#   THREADS=0                                  0 = auto; >0 exporta OMP_NUM_THREADS
 #   OUTDIR=benchmark-results
 #   MAKE=make
 
 set -euo pipefail
 
-SYSTEMS="${SYSTEMS:-1000 5000 25000 100000 200000}"
+SYSTEMS="${SYSTEMS:-1000 5000 15000 30000 50000}"
 RUNS="${RUNS:-10}"
 STARS="${STARS:-500}"
 SEED="${SEED:-20260831}"
 WIDTH="${WIDTH:-1280}"
 HEIGHT="${HEIGHT:-720}"
 VERSION="${VERSION:-sequential}"
-THREADS="${THREADS:-0}"
+THREADS_LIST="${THREADS_LIST:-1 2 4 8 16}"
 OUTDIR="${OUTDIR:-benchmark-results}"
 MAKE="${MAKE:-make}"
 
@@ -44,14 +45,10 @@ BIN="./screensaver"
 TS="$(date +%Y%m%d-%H%M%S)"
 
 case "$VERSION" in
-  sequential) MODE_FLAG="--sequential" ;;
+  sequential) MODE_FLAG="--sequential"; THREADS_LIST="0" ;;
   parallel)   MODE_FLAG="--parallel" ;;
   *) echo "VERSION debe ser 'sequential' o 'parallel', no '$VERSION'" >&2; exit 2 ;;
 esac
-
-if [ "$VERSION" = "parallel" ] && [ "$THREADS" -gt 0 ]; then
-  export OMP_NUM_THREADS="$THREADS"
-fi
 
 mkdir -p "$OUTDIR"
 
@@ -109,19 +106,27 @@ EOF
 echo "Hardware -> $HW_JSON"
 
 # --- modo ceiling: 1 punto cualitativo (sin --benchmark) -------------------
+# scripts/benchmark.sh --ceiling [N]            (secuencial)
+# VERSION=parallel CEIL_THREADS=8 scripts/benchmark.sh --ceiling 1000000
 if [ "${1:-}" = "--ceiling" ]; then
   N="${2:-1000000}"
   CEIL_CSV="$OUTDIR/scaling-ceiling.csv"
   [ -f "$CEIL_CSV" ] || echo "Version,Threads,Systems,Entities,UpdateMs,MeanFps,Frames,Seconds,Commit,Timestamp" > "$CEIL_CSV"
-  echo "Ceiling: N=$N version=$VERSION (5 fotogramas, puede tardar minutos)"
-  out="$("$BIN" "$N" --stars "$STARS" --seed "$SEED" --width "$WIDTH" --height "$HEIGHT" \
-        "$MODE_FLAG" --frames 5 --no-vsync 2>&1 || true)"
+  if [ "$VERSION" = parallel ]; then
+    thr="${CEIL_THREADS:-4}"
+    out="$("$BIN" "$N" --stars "$STARS" --seed "$SEED" --width "$WIDTH" --height "$HEIGHT" \
+          "$MODE_FLAG" --threads "$thr" --frames 5 --no-vsync 2>&1 || true)"
+  else
+    thr=1
+    out="$("$BIN" "$N" --stars "$STARS" --seed "$SEED" --width "$WIDTH" --height "$HEIGHT" \
+          "$MODE_FLAG" --frames 5 --no-vsync 2>&1 || true)"
+  fi
+  echo "Ceiling: N=$N version=$VERSION hilos=$thr"
   ent="$(printf '%s\n' "$out" | awk -F'[ :]+' '/Entidades/{print $2; exit}')"
   ums="$(printf '%s\n' "$out" | awk -F'[ :]+' '/Actualizacion ECS/{print $4; exit}')"
   fps="$(printf '%s\n' "$out" | sed -n 's/.*(\([0-9.]*\) FPS medio).*/\1/p' | head -1)"
   fr="$(printf '%s\n'  "$out" | sed -n 's/Fotogramas *: \([0-9]*\) en.*/\1/p' | head -1)"
   sec="$(printf '%s\n' "$out" | sed -n 's/Fotogramas *: [0-9]* en \([0-9.]*\) s.*/\1/p' | head -1)"
-  thr="$([ "$VERSION" = parallel ] && echo "${THREADS:-4}" || echo 1)"
   echo "$VERSION,$thr,$N,${ent:-},${ums:-},${fps:-},${fr:-},${sec:-},$commit,$(date +%FT%T)" >> "$CEIL_CSV"
   printf '%s\n' "$out" | grep -E 'Entidades|Actualizacion|Fotogramas|Aviso|Error' || true
   echo "-> $CEIL_CSV"
@@ -133,45 +138,57 @@ RUNS_CSV="$OUTDIR/runs-speedup-$VERSION-$TS.csv"
 SUMMARY_CSV="$OUTDIR/summary-speedup-$VERSION-$TS.csv"
 echo "Run,Timestamp,Commit,DirtyWorkingTree,Cpu,Gpu,OperatingSystem,Gcc,Mode,Version,Threads,Seed,Systems,Stars,Width,Height,Seconds,Frames,AverageFps,OneSecondMinFps,GetFpsAverage,GetFpsMin,Samples,UpdateMs" > "$RUNS_CSV"
 
-run_one() {  # $1 = N ; imprime la linea BENCHMARK_CSV validada o sale != 0
-  "$BIN" "$1" --stars "$STARS" --seed "$SEED" --width "$WIDTH" --height "$HEIGHT" \
-      "$MODE_FLAG" --no-vsync --benchmark 2>/dev/null \
-    | grep '^BENCHMARK_CSV,' | head -1
+run_one() {  # $1 = N, $2 = hilos (0 = sin --threads); imprime la linea BENCHMARK_CSV
+  if [ "${2:-0}" -gt 0 ]; then
+    "$BIN" "$1" --stars "$STARS" --seed "$SEED" --width "$WIDTH" --height "$HEIGHT" \
+        "$MODE_FLAG" --threads "$2" --no-vsync --benchmark 2>/dev/null \
+      | grep '^BENCHMARK_CSV,' | head -1
+  else
+    "$BIN" "$1" --stars "$STARS" --seed "$SEED" --width "$WIDTH" --height "$HEIGHT" \
+        "$MODE_FLAG" --no-vsync --benchmark 2>/dev/null \
+      | grep '^BENCHMARK_CSV,' | head -1
+  fi
 }
 
+total=$(( $(echo $SYSTEMS | wc -w) * $(echo $THREADS_LIST | wc -w) * RUNS ))
+done_runs=0
 for N in $SYSTEMS; do
-  accepted=0
-  attempts=0
-  max_attempts=$(( RUNS * 3 ))
-  while [ "$accepted" -lt "$RUNS" ]; do
-    attempts=$(( attempts + 1 ))
-    if [ "$attempts" -gt "$max_attempts" ]; then
-      echo "No se completaron $RUNS corridas validas con N=$N" >&2; exit 1
-    fi
-    echo "N=$N  corrida $(( accepted + 1 ))/$RUNS ($VERSION)"
-    line="$(run_one "$N" || true)"
-    if [ -z "$line" ]; then
-      echo "  sin linea BENCHMARK_CSV (¿pantalla bloqueada?), reintentando" >&2
-      sleep 1; continue
-    fi
-    IFS=',' read -r _tag mode thr seed sys stars w h secs frames afps s1min gfa gfm samples ums <<EOF
+  for T in $THREADS_LIST; do
+    accepted=0
+    attempts=0
+    max_attempts=$(( RUNS * 3 ))
+    while [ "$accepted" -lt "$RUNS" ]; do
+      attempts=$(( attempts + 1 ))
+      if [ "$attempts" -gt "$max_attempts" ]; then
+        echo "No se completaron $RUNS corridas validas con N=$N hilos=$T" >&2; exit 1
+      fi
+      tlabel="$([ "$VERSION" = parallel ] && echo " hilos=$T" || echo "")"
+      echo "[$((done_runs+1))/$total] N=$N$tlabel  corrida $(( accepted + 1 ))/$RUNS"
+      line="$(run_one "$N" "$T" || true)"
+      if [ -z "$line" ]; then
+        echo "  sin linea BENCHMARK_CSV (¿pantalla bloqueada?), reintentando" >&2
+        sleep 1; continue
+      fi
+      IFS=',' read -r _tag mode thr seed sys stars w h secs frames afps s1min gfa gfm samples ums <<EOF
 $line
 EOF
-    if [ "$samples" != "10" ]; then
-      echo "  $samples intervalos (esperados 10), reintentando" >&2
-      continue
-    fi
-    run_no=$(( accepted + 1 ))
-    printf '%s,%s,%s,%s,"%s","%s","%s","%s",speedup,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
-      "$run_no" "$(date +%FT%T)" "$commit" "$dirty" "$cpu" "$gpu" "$os_ver" "$gcc_ver" \
-      "$mode" "$thr" "$seed" "$sys" "$stars" "$w" "$h" \
-      "$secs" "$frames" "$afps" "$s1min" "$gfa" "$gfm" "$samples" "$ums" >> "$RUNS_CSV"
-    accepted=$(( accepted + 1 ))
+      if [ "$samples" != "10" ]; then
+        echo "  $samples intervalos (esperados 10) — N muy alto para esta maquina, reintentando" >&2
+        continue
+      fi
+      run_no=$(( accepted + 1 ))
+      printf '%s,%s,%s,%s,"%s","%s","%s","%s",speedup,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+        "$run_no" "$(date +%FT%T)" "$commit" "$dirty" "$cpu" "$gpu" "$os_ver" "$gcc_ver" \
+        "$mode" "$thr" "$seed" "$sys" "$stars" "$w" "$h" \
+        "$secs" "$frames" "$afps" "$s1min" "$gfa" "$gfm" "$samples" "$ums" >> "$RUNS_CSV"
+      accepted=$(( accepted + 1 ))
+      done_runs=$(( done_runs + 1 ))
+    done
   done
 done
 echo "Corridas -> $RUNS_CSV"
 
-# --- agregacion: una fila por N ------------------------------------------------
+# --- agregacion: una fila por (N, hilos) -------------------------------------
 awk -F',' '
   function median(a, n,   b, i, j, t) {
     for (i = 1; i <= n; i++) b[i] = a[i]
@@ -182,15 +199,14 @@ awk -F',' '
   }
   NR == 1 { next }
   {
-    v = $10; thr = $11; seed = $12; n = $13; stars = $14; w = $15; h = $16
-    key = n
+    v = $10; thr = $11 + 0; seed = $12; n = $13 + 0; stars = $14; w = $15; h = $16
+    key = n SUBSEP thr
     cnt[key]++
     fps[key SUBSEP cnt[key]] = $19 + 0
     ums[key SUBSEP cnt[key]] = $24 + 0
     if (!( key in wmin ) || ($20 + 0) < wmin[key]) wmin[key] = $20 + 0
-    ver[key] = v; threads[key] = thr; sd[key] = seed
+    ver[key] = v; nn[key] = n; tt[key] = thr; sd[key] = seed
     st[key] = stars; ww[key] = w; hh[key] = h
-    order[NR] = key
   }
   END {
     print "Version,Threads,Systems,Stars,Width,Height,Seed,Runs,MeanFps,MedianFps,WorstOneSecondFps,StandardDeviationFps,MeanUpdateMs,MedianUpdateMs,StandardDeviationUpdateMs"
@@ -202,13 +218,13 @@ awk -F',' '
       fvar = 0; uvar = 0
       for (i = 1; i <= m; i++) { fvar += (fa[i]-fmean)^2; uvar += (ua[i]-umean)^2 }
       fvar /= m; uvar /= m
-      printf "%s,%s,%s,%s,%s,%s,%s,%d,%.3f,%.3f,%.3f,%.3f,%.6f,%.6f,%.6f\n",
-        ver[k], threads[k], k, st[k], ww[k], hh[k], sd[k], m,
+      printf "%s,%d,%d,%s,%s,%s,%s,%d,%.3f,%.3f,%.3f,%.3f,%.6f,%.6f,%.6f\n",
+        ver[k], tt[k], nn[k], st[k], ww[k], hh[k], sd[k], m,
         fmean, median(fa, m), wmin[k], sqrt(fvar),
         umean, median(ua, m), sqrt(uvar)
     }
   }
-' "$RUNS_CSV" | { read -r hdr; echo "$hdr"; sort -t',' -k3 -n; } > "$SUMMARY_CSV"
+' "$RUNS_CSV" | { read -r hdr; echo "$hdr"; sort -t',' -k3,3n -k2,2n; } > "$SUMMARY_CSV"
 
 echo "Resumen  -> $SUMMARY_CSV"
 column -t -s',' "$SUMMARY_CSV" 2>/dev/null || cat "$SUMMARY_CSV"
