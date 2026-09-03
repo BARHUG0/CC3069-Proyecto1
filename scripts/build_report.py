@@ -125,15 +125,19 @@ def build_dataset():
     def par_ms(n, t):
         return _f(par.get((n, t), {}), "MeanUpdateMs")
 
-    # conteo de hilos "titular": el que da el mejor speedup medio sobre los N.
-    def mean_speedup_at(t):
-        vals = []
-        for n in ns:
-            s, p = _f(seq[n], "MeanUpdateMs"), par_ms(n, t)
-            if s and p:
-                vals.append(s / p)
-        return sum(vals) / len(vals) if vals else 0.0
-    headline_t = max(thread_counts, key=mean_speedup_at) if ns else thread_counts[-1]
+    # conteo de hilos "titular" = la rodilla de la curva: el menor conteo cuyo
+    # speedup en el N mayor llega al 92 % del pico. Evita quedarse con un conteo
+    # alto que apenas mejora el speedup pero hunde la eficiencia.
+    def speedup_at(n, t):
+        s, p = _f(seq[n], "MeanUpdateMs"), par_ms(n, t)
+        return s / p if s and p else 0.0
+    if ns:
+        nbig = ns[-1]
+        peak = max(speedup_at(nbig, t) for t in thread_counts)
+        headline_t = next((t for t in thread_counts
+                           if speedup_at(nbig, t) >= 0.92 * peak), thread_counts[-1])
+    else:
+        headline_t = thread_counts[-1]
 
     # serie principal vs N, al conteo de hilos titular
     points = []
@@ -496,8 +500,10 @@ function lineChart(mount, opts){
   const xlog=!!opts.xLog;
   const xmin=Math.min(...xs), xmax=Math.max(...xs);
   let ymin=opts.yMin!=null?opts.yMin:Math.min(...ys,0);
-  let ytop=Math.max(...ys, opts.ref!=null?opts.ref:-Infinity);
-  let ymax=(ytop<=ymin?ymin+1:ytop)*1.08;
+  const dtop=Math.max(...ys);
+  // incluir la referencia en la escala solo si no aplasta los datos (< 1.8x el pico)
+  let ytop=(opts.ref!=null && opts.ref<=dtop*1.8) ? Math.max(dtop,opts.ref) : dtop;
+  let ymax=(ytop<=ymin?ymin+1:ytop)*1.10;
   const fx=v=> m.l + (xlog?(Math.log10(v)-Math.log10(xmin))/(Math.log10(xmax)-Math.log10(xmin)):(v-xmin)/(xmax-xmin))*iw;
   const fy=v=> m.t + ih - (v-ymin)/(ymax-ymin)*ih;
   const ink=cssvar('--ink'), ink2=cssvar('--ink-2'), muted=cssvar('--muted'), grid=cssvar('--grid');
@@ -527,11 +533,15 @@ function lineChart(mount, opts){
   let lx=el('text',{x:m.l+iw/2,y:H-8,'text-anchor':'middle',fill:ink2,'font-size':12,'font-family':cssvar('--font-mono')}); lx.textContent=opts.xLabel||'N (sistemas)'; svg.appendChild(lx);
   let ly=el('text',{x:15,y:m.t+ih/2,'text-anchor':'middle',fill:ink2,'font-size':12,'font-family':cssvar('--font-mono'),transform:`rotate(-90 15 ${m.t+ih/2})`}); ly.textContent=opts.yLabel||''; svg.appendChild(ly);
 
-  // reference line (e.g. ideal)
+  // reference line (e.g. ideal). Si queda fuera de escala, se ancla al borde
+  // superior con una flecha en la etiqueta.
   if(opts.ref!=null){
-    const y=fy(opts.ref);
+    const raw=fy(opts.ref);
+    const y=Math.max(m.t+1, Math.min(m.t+ih, raw));
+    const off = raw < m.t;
     svg.appendChild(el('line',{x1:m.l,x2:m.l+iw,y1:y,y2:y,stroke:cssvar('--ideal'),'stroke-width':1.5,'stroke-dasharray':'5 4'}));
-    const t=el('text',{x:m.l+iw+6,y:y+4,fill:muted,'font-size':11,'font-family':cssvar('--font-mono')}); t.textContent=opts.refLabel||'ideal'; svg.appendChild(t);
+    const t=el('text',{x:m.l+iw+6,y:y+4,fill:muted,'font-size':11,'font-family':cssvar('--font-mono')});
+    t.textContent=(off?'↑ ':'')+(opts.refLabel||'ideal'); svg.appendChild(t);
   }
 
   // series
