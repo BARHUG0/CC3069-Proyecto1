@@ -867,7 +867,7 @@ def slides_html(d):
     # 4 — speedup vs N
     S.append(f"""<section class="slide"><span class="num">04</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 1 de 6</p>
-      <h2>Speedup de la actualización</h2>
+      <h2>Speedup</h2>
       <figure><div class="chart-card"><div id="c-speedup"></div></div>
         <figcaption>speedup(N) = t_secuencial / t_paralelo, sobre el tiempo medio de
         actualización ECS (sin render), a {th} hilos. La línea punteada es el techo
@@ -1032,7 +1032,7 @@ def slides_html(d):
             <li><b>Sacar el render del hilo único.</b> Construir los vértices de todos
             los cuerpos en paralelo y subirlos como una sola malla dinámica — ya se
             hace así con las estelas. Es el cambio que haría que los FPS totales sigan
-            al speedup de la actualización.</li>
+            al speedup.</li>
             <li><b>Paralelizar <code>sys_drift</code> y la siembra de estelas.</b> Hoy
             corren en serie «por ser recorridos chicos»; con N alto ya no lo son, y
             ambos son por-sistema e independientes.</li>
