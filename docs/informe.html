@@ -1,0 +1,413 @@
+<meta charset="utf-8">
+<title>Informe — Screensaver ECS con OpenMP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --paper:#fffef9; --ink:#1c1a15; --ink-2:#4a463c; --muted:#78725f;
+    --rule:#d0c9b6; --rule-strong:#a99f86; --surface-2:#f5f1e4;
+    --accent:#9a5600;
+    --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+    --sans:"Archivo",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --paper:#14140f; --ink:#eceadf; --ink-2:#c3bfae; --muted:#928c78;
+      --rule:#332f24; --rule-strong:#4a4433; --surface-2:#1d1c15; --accent:#e0a24a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#14140f; --ink:#eceadf; --ink-2:#c3bfae; --muted:#928c78;
+    --rule:#332f24; --rule-strong:#4a4433; --surface-2:#1d1c15; --accent:#e0a24a;
+  }
+
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--serif); font-size:10.5pt; line-height:1.5;
+    font-variant-numeric:oldstyle-nums;
+  }
+  .page{max-width:44rem; margin:0 auto; padding:2rem;}
+
+  h1,h2,h3,h4{font-family:var(--sans); font-weight:700; line-height:1.2;
+    color:var(--ink); margin:1.5em 0 .4em; text-wrap:balance;}
+  h1{font-size:1.5rem; font-weight:800; margin:.2em 0 .3em;}
+  h2{font-size:1.16rem; border-bottom:1.5px solid var(--rule-strong); padding-bottom:.2em; margin-top:1.6em;}
+  h3{font-size:1rem;}
+  p{margin:0 0 .6em; max-width:40rem;}
+  em,i{font-style:italic;}
+  strong,b{font-weight:600;}
+  a{color:var(--accent); text-decoration:none;}
+  code,kbd,samp{font-family:var(--mono); font-size:.85em; background:var(--surface-2);
+    padding:.06em .3em; border-radius:3px;}
+  ul,ol{margin:0 0 .7em; padding-left:1.4rem;}
+  li{margin:.2em 0; max-width:38rem;}
+
+  .kicker{font-family:var(--mono); font-size:.76rem; letter-spacing:.06em;
+    color:var(--ink-2); line-height:1.7; margin:0;}
+  .sub{font-size:1.02rem; color:var(--ink-2); font-style:italic; max-width:34rem; margin:.2em 0 .8em;}
+  .meta{font-family:var(--mono); font-size:.78rem; color:var(--ink-2); line-height:1.9;
+    border-top:1.5px solid var(--rule); border-bottom:1.5px solid var(--rule);
+    padding:.6rem 0; margin:.4rem 0 0;}
+  .meta b{color:var(--ink); font-weight:500;}
+
+  .secnum{color:var(--accent); font-variant-numeric:lining-nums; margin-right:.5ch;}
+
+  figure{margin:1rem 0; page-break-inside:avoid;}
+  figcaption{font-family:var(--sans); font-size:.78rem; color:var(--muted);
+    margin-top:.4em; line-height:1.4;}
+  figcaption b{color:var(--ink-2); font-weight:700;}
+  table{border-collapse:collapse; width:100%; font-family:var(--mono);
+    font-size:.76rem; font-variant-numeric:tabular-nums lining-nums; margin:.4rem 0;}
+  caption{caption-side:top; text-align:left; font-family:var(--sans); font-weight:700;
+    font-size:.8rem; color:var(--ink-2); margin-bottom:.3em;}
+  th,td{border:1px solid var(--rule-strong); padding:.28em .5em; text-align:right; vertical-align:top;}
+  th{background:var(--surface-2); font-weight:500; color:var(--ink);
+    text-transform:uppercase; font-size:.68rem; letter-spacing:.03em;}
+  th:first-child,td:first-child{text-align:left;}
+  tbody tr:nth-child(even) td{background:#efe9d8;}
+  td.hi{color:var(--accent); font-weight:500;}
+  td.l{text-align:left;}
+
+  pre.code{background:var(--surface-2); border:1px solid var(--rule); border-radius:6px;
+    font-family:var(--mono); font-size:.76rem; line-height:1.45; padding:.8rem .9rem;
+    overflow-x:auto; page-break-inside:avoid;}
+
+  .refs{font-size:.8rem; color:var(--ink-2);}
+  .refs li{margin:.3em 0;}
+  .refs a{word-break:break-all;}
+
+  .diagram{border:1px solid var(--rule); border-radius:6px; background:#fff;
+    padding:.5rem; max-width:27rem; margin:1rem auto 0;}
+  .diagram svg{display:block; width:100%; height:auto;}
+
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]) tbody tr:nth-child(even) td{background:#242219;}
+  }
+  :root[data-theme="dark"] tbody tr:nth-child(even) td{background:#242219;}
+
+  @media print{
+    :root{--paper:#fff; --ink:#000; --ink-2:#222; --muted:#555;
+      --rule:#bbb; --rule-strong:#888; --surface-2:#f0f0f0; --accent:#8a4d00;}
+    tbody tr:nth-child(even) td{background:#f0f0f0;}
+    .page{max-width:none; margin:0; padding:0;}
+    @page{size:Letter; margin:1.8cm 2cm;}
+    h2,h3{page-break-after:avoid;}
+    figure,table,pre{page-break-inside:avoid;}
+    a{color:#000;}
+  }
+</style>
+
+<div class="page">
+
+<header>
+  <p class="kicker">
+    Universidad del Valle de Guatemala · Facultad de Ingeniería<br>
+    Departamento de Ciencias de la Computación<br>
+    CC3069 — Computación Paralela y Distribuida · Semestre 2, 2026
+  </p>
+  <h1>Screensaver de sistemas solares: de secuencial a OpenMP</h1>
+  <p class="sub">Paralelización con memoria compartida de un motor de entidades
+  orientado a datos, y medición de su speedup y eficiencia.</p>
+  <div class="meta">
+    <b>Proyecto&nbsp;1</b> — Informe · Integrantes:
+    <b>Hugo Barillas</b> — carné 23556 · <b>Ernesto Ascencio</b> — carné 23009<br>
+    Repositorio: <b>github.com/BARHUG0/CC3069-Proyecto1</b> ·
+    C11 · raylib · OpenMP · 2&nbsp;de&nbsp;septiembre&nbsp;de&nbsp;2026
+  </div>
+</header>
+
+<h2><span class="secnum">1</span>El problema</h2>
+<p>El motor es un <strong>ECS</strong> (Entity–Component–System) orientado a
+datos: una entidad es un índice entero y sus atributos viven en arreglos paralelos
+(<em>struct de arrays</em>) dentro de una estructura <code>World</code>. Cada
+fotograma se ejecutan tres sistemas por entidad — <strong>centelleo</strong>
+(senoide del brillo), <strong>órbita</strong> (integra el ángulo y proyecta la
+posición) y <strong>vida</strong> (destruye la entidad al agotarse); en la versión
+secuencial se fusionan en un solo recorrido (<code>sys_update</code>). Ese
+recorrido es <strong>el único trabajo que crece con <code>N</code></strong>
+(número de sistemas solares); el resto del fotograma es pequeño o serial. Como
+cada iteración <code>e</code> sólo toca la posición <code>e</code>, el bucle no
+tiene dependencias entre iteraciones: es paralelo por construcción.</p>
+
+<h2><span class="secnum">2</span>Pseudocódigo</h2>
+<p>Bucle principal, ya con la bifurcación de modo (<code>--sequential</code> por
+defecto, <code>--parallel</code> opcional):</p>
+<pre class="code">para cada fotograma:
+    dt ← tiempo desde el fotograma anterior          # acotado a 50 ms
+    sys_spawn_stars(mundo, dt)                        # repone estrellas de fondo
+    sys_drift(sistemas, dt)                           # mueve el centro de cada sistema
+    si modo == paralelo:
+        #pragma omp parallel for schedule(static, 64) num_threads(T)
+        para e en 0 .. entidades-1:
+            centelleo(e); órbita(e)
+            si vida(e) llegó a 0:  marcar e con bit C_PENDING_DESTROY
+        # ← barrera implícita: todos los hilos terminan aquí
+    si no:
+        para e en 0 .. entidades-1:  centelleo(e); órbita(e); vida(e)
+    destruir entidades marcadas                       # en serie, hilo principal
+    sys_trails(mundo, dt)                             # muestrea posiciones para estelas
+    sys_render(mundo, sistemas, estelas)              # sólo hilo principal (OpenGL)
+    dibujar FPS en pantalla</pre>
+
+<p><strong>Sincronía.</strong> Toda la paralelización cabe en la única directiva
+<code>#pragma omp parallel for schedule(static, 64)</code> mostrada arriba, y su
+único mecanismo de sincronía es la barrera implícita al cerrar la región. No se
+usan mutex, secciones críticas ni atómicas. La destrucción de entidades — la
+única escritura a estado compartido (<code>freeList</code>, <code>alive</code>) —
+se difiere con <em>marcar-y-barrer</em>: dentro de la región cada hilo sólo activa
+el bit <code>C_PENDING_DESTROY</code> en su propia posición <code>mask[e]</code>,
+y un segundo recorrido serial, fuera de la región, hace las bajas reales. La ruta
+paralela cae a la secuencial por debajo de <strong>6144 entidades</strong>, donde
+abrir la región cuesta más que el trabajo.</p>
+
+<h2><span class="secnum">3</span>Método PCAM</h2>
+<figure>
+<table>
+  <caption>Tabla 1. PCAM aplicado al bucle de actualización.</caption>
+  <thead><tr><th>Fase</th><th class="l">Decisión</th></tr></thead>
+  <tbody>
+    <tr><td>Particionar</td><td class="l">La unidad de trabajo es una entidad. El recorrido por entidad que fusiona centelleo + órbita + vida es lo único que crece con <code>N</code>; es el dominio a repartir.</td></tr>
+    <tr><td>Comunicar</td><td class="l">Ninguna comunicación entre tareas: con el layout SoA la iteración <code>e</code> sólo toca la posición <code>e</code>. Las altas y bajas de entidades se sacan de la región (las bajas se marcan con un bit y se aplican después).</td></tr>
+    <tr><td>Aglomerar</td><td class="l">Las tres operaciones por entidad se agrupan en un único bucle paralelo con reparto <code>static</code> en bloques contiguos de 64 iteraciones: cada hilo procesa un tramo del arreglo, lo que conserva la localidad de caché.</td></tr>
+    <tr><td>Mapear</td><td class="l">Por defecto 4 hilos; <code>--threads T</code> fuerza otro número (incluso más que los núcleos, para medir el límite). Una barrera implícita al cerrar la región; tras ella el hilo principal aplica bajas, muestrea estelas y dibuja.</td></tr>
+  </tbody>
+</table>
+</figure>
+
+<h2><span class="secnum">4</span>Metodología de medición</h2>
+<p>El binario incorpora un modo <code>--benchmark</code>: descarta 3&nbsp;s de
+calentamiento y mide durante 10&nbsp;s tomando una muestra por segundo. La métrica
+para el speedup es el <strong>tiempo mediano de actualización ECS por fotograma,
+aislado del render</strong> — no los FPS totales, porque el render es serial y
+domina el fotograma. Un script (<code>scripts/benchmark.sh</code>) corre el
+binario <strong>10 veces</strong> por configuración y agrega media, mediana y
+desviación estándar; en modo paralelo barre los conteos de hilos 1, 2, 4, 8, 16.
+Escena fija en todas las corridas: semilla <code>20260831</code>, 1280×720, 500
+estrellas de fondo, <code>--no-vsync</code>. Speedup <code>S = t_seq / t_par</code>;
+eficiencia <code>E = S / hilos</code>. Máquina: <strong>Apple M5&nbsp;Pro, 15
+núcleos</strong>, macOS&nbsp;26.6.2, Homebrew clang&nbsp;22. Cada valor reportado
+es la mediana de 10 corridas.</p>
+
+<h2><span class="secnum">5</span>Resultados</h2>
+
+<figure>
+  <table>
+    <caption>Tabla 2. Tiempo de actualización ECS a 4 hilos (la «rodilla» de la curva).</caption>
+    <thead><tr><th>N</th><th>t_seq (ms)</th><th>t_par&nbsp;4h (ms)</th><th>speedup</th><th>eficiencia</th><th>FPS seq</th><th>FPS par</th></tr></thead>
+    <tbody>
+      <tr><td>1 000</td><td>0.086</td><td>0.108</td><td class="hi">0.80×</td><td>20 %</td><td>55.3</td><td>36.6</td></tr>
+      <tr><td>5 000</td><td>0.461</td><td>0.223</td><td class="hi">2.07×</td><td>52 %</td><td>12.6</td><td>12.6</td></tr>
+      <tr><td>15 000</td><td>1.392</td><td>0.648</td><td class="hi">2.15×</td><td>54 %</td><td>5.5</td><td>5.5</td></tr>
+    </tbody>
+  </table>
+  <figcaption><b>Lectura.</b> A <code>N</code>&nbsp;=&nbsp;1000 (~6500 entidades,
+  apenas sobre el umbral) las 4 hilos quedan por debajo del secuencial: arrancar
+  la región cuesta casi tanto como el trabajo. Los FPS totales no cambian entre
+  modos porque los fija el render. A <code>N</code>&nbsp;=&nbsp;1&nbsp;000&nbsp;000
+  (~6 millones de entidades, sin <code>--benchmark</code>) la actualización toma
+  ~104&nbsp;ms; el programa no se rompe a esa escala (~0.7&nbsp;GB).</figcaption>
+</figure>
+
+<figure>
+  <table>
+    <caption>Tabla 3. Speedup por N y número de hilos.</caption>
+    <thead><tr><th>N</th><th>1 hilo</th><th>2 hilos</th><th>4 hilos</th><th>8 hilos</th><th>16 hilos</th></tr></thead>
+    <tbody>
+      <tr><td>1 000</td><td>0.32×</td><td>0.26×</td><td>0.80×</td><td class="hi">1.31×</td><td>1.15×</td></tr>
+      <tr><td>5 000</td><td>1.01×</td><td>1.61×</td><td class="hi">2.07×</td><td>1.52×</td><td>1.52×</td></tr>
+      <tr><td>15 000</td><td>1.03×</td><td>1.64×</td><td>2.15×</td><td class="hi">2.29×</td><td>2.19×</td></tr>
+    </tbody>
+  </table>
+  <figcaption><b>Lectura.</b> El speedup crece hasta 4 hilos y ahí se aplana; el
+  pico (2.29× a 15&nbsp;000) está en 8, y a 16 hilos empeora. La marca resalta el
+  mejor valor de cada fila.</figcaption>
+</figure>
+
+<figure>
+  <table>
+    <caption>Tabla 4. Eficiencia (speedup ÷ hilos).</caption>
+    <thead><tr><th>N</th><th>1 hilo</th><th>2 hilos</th><th>4 hilos</th><th>8 hilos</th><th>16 hilos</th></tr></thead>
+    <tbody>
+      <tr><td>1 000</td><td>32 %</td><td>13 %</td><td>20 %</td><td>16 %</td><td>7 %</td></tr>
+      <tr><td>5 000</td><td>101 %</td><td>81 %</td><td>52 %</td><td>19 %</td><td>10 %</td></tr>
+      <tr><td>15 000</td><td>103 %</td><td>82 %</td><td>54 %</td><td>29 %</td><td>14 %</td></tr>
+    </tbody>
+  </table>
+  <figcaption><b>Lectura.</b> La eficiencia baja de forma monótona con cada hilo
+  extra. El &gt;100&nbsp;% a 1 hilo para <code>N</code> grande es un efecto de
+  caché: la región paralela con un solo hilo ya reordena el acceso mejor que el
+  bucle secuencial.</figcaption>
+</figure>
+
+<h2><span class="secnum">6</span>Análisis y conclusiones</h2>
+<ul>
+  <li><strong>La actualización escala hasta un punto:</strong> 2.15× a
+  <code>N</code>&nbsp;=&nbsp;15&nbsp;000 con 4 hilos, sin ningún mecanismo de
+  exclusión mutua. El patrón por entidad sobre SoA era paralelizable de raíz.</li>
+  <li><strong>El límite no es el número de núcleos, es la memoria:</strong> pasar
+  de 4 a 8 o 16 hilos casi no mejora el tiempo y la eficiencia se desploma
+  (54&nbsp;%&nbsp;→&nbsp;29&nbsp;%&nbsp;→&nbsp;14&nbsp;%). El bucle mueve más bytes
+  de los que calcula y todos los hilos comparten el mismo ancho de banda.</li>
+  <li><strong>Los FPS totales no se mueven:</strong> como predice la ley de
+  Amdahl, la fracción serial — el render, que raylib y OpenGL exigen en un solo
+  hilo — fija el techo. En el otro extremo, a <code>N</code>&nbsp;=&nbsp;1000 el
+  overhead de crear el equipo de hilos domina y el speedup es &lt;&nbsp;1: de ahí
+  el umbral de 6144 entidades. El diseño orientado a datos fue lo que permitió
+  paralelizar con una sola directiva y sin exclusión mutua, con equivalencia bit
+  a bit verificada en las pruebas.</li>
+</ul>
+
+<h2><span class="secnum">7</span>Pruebas</h2>
+<figure>
+  <table>
+    <caption>Tabla 5. Pruebas unitarias (<code>make test</code>) — todas pasan.</caption>
+    <thead><tr><th>Caso</th><th class="l">Qué verifica</th><th>Resultado</th></tr></thead>
+    <tbody>
+      <tr><td>Equiv. ruta corta</td><td class="l"><code>sys_update</code> vs <code>sys_update_parallel</code> con mundo pequeño (cae a la ruta secuencial): <code>World</code> completo idéntico tras un paso.</td><td>OK</td></tr>
+      <tr><td>Equiv. ruta OpenMP</td><td class="l">&gt;6144 entidades con 8 hilos (sobresuscripción): <code>World</code> bit a bit igual al de 1 hilo.</td><td>OK</td></tr>
+      <tr><td>Estelas y RNG</td><td class="l"><code>TrailBuffer</code> y estado del <code>Rng</code> idénticos en ambas rutas tras el paso.</td><td>OK</td></tr>
+      <tr><td>Conteo de bajas</td><td class="l">Número de entidades destruidas igual en secuencial y paralelo, y coincide con las estrellas objetivo.</td><td>OK</td></tr>
+      <tr><td>Límites de layout</td><td class="l"><code>assert_layout_bounds</code>: posiciones y radios dentro de rango tras spawn.</td><td>OK</td></tr>
+      <tr><td>Regresión de deriva</td><td class="l"><code>assert_drift_visible</code>: al menos un sistema se desplaza &gt;20&nbsp;px en 2&nbsp;s de simulación.</td><td>OK</td></tr>
+      <tr><td>Profundidad estable</td><td class="l"><code>assert_depth_survives_churn</code>: la capa de profundidad se conserva tras altas/bajas repetidas.</td><td>OK</td></tr>
+      <tr><td>Deathstar</td><td class="l">Movimiento WASD acotado a pantalla; un solo disparo por ciclo; el impacto destruye el sistema objetivo.</td><td>OK</td></tr>
+    </tbody>
+  </table>
+</figure>
+
+<figure>
+  <table>
+    <caption>Tabla 6. Bitácora de mediciones — resumen (mediana de 10 corridas, ms de actualización ECS por fotograma).</caption>
+    <thead><tr><th>N</th><th>hilos</th><th>t_seq</th><th>t_par</th><th>σ par</th><th>speedup</th><th>eficiencia</th></tr></thead>
+    <tbody>
+      <tr><td>15 000</td><td>4</td><td>1.390</td><td>0.645</td><td>0.025</td><td class="hi">2.15×</td><td>54 %</td></tr>
+      <tr><td>15 000</td><td>8</td><td>1.390</td><td>0.595</td><td>0.040</td><td class="hi">2.29×</td><td>29 %</td></tr>
+      <tr><td>5 000</td><td>4</td><td>0.461</td><td>0.223</td><td>0.006</td><td class="hi">2.07×</td><td>52 %</td></tr>
+      <tr><td>1 000</td><td>8</td><td>0.085</td><td>0.063</td><td>0.006</td><td class="hi">1.31×</td><td>16 %</td></tr>
+    </tbody>
+  </table>
+  <figcaption><b>Nota.</b> A <code>N</code>&nbsp;=&nbsp;1000 el ruido es mayor y a
+  1, 2 y 4 hilos el paralelismo queda por debajo del secuencial (Tabla 3). Los CSV
+  completos, una fila por corrida, están versionados en
+  <code>benchmark-results/</code>.</figcaption>
+</figure>
+
+<h2><span class="secnum">8</span>Referencias</h2>
+<ol class="refs">
+  <li>OpenMP Architecture Review Board. <em>OpenMP Application Programming
+  Interface, Version 5.2</em>. 2021.
+  <a href="https://www.openmp.org/spec-html/5.2/openmp.html">openmp.org/spec-html/5.2</a></li>
+  <li>Foster, I. <em>Designing and Building Parallel Programs</em>. Addison-Wesley,
+  1995. Cap.&nbsp;2, «Designing Parallel Algorithms» (metodología PCAM).
+  <a href="https://www.mcs.anl.gov/~itf/dbpp/">mcs.anl.gov/~itf/dbpp</a></li>
+  <li>Amdahl, G. M. «Validity of the single processor approach to achieving large
+  scale computing capabilities». <em>AFIPS Conference Proceedings</em>,
+  vol.&nbsp;30, 1967, pp.&nbsp;483–485.</li>
+</ol>
+
+<h2 style="page-break-before:always">Anexo — Diagrama de flujo</h2>
+<figure>
+<div class="diagram" style="max-width:30rem">
+<svg viewBox="0 0 600 748" role="img" aria-label="Diagrama de flujo del programa"
+     font-family="Archivo, sans-serif" text-anchor="middle">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#333"/>
+    </marker>
+  </defs>
+
+  <g fill="none" stroke="#333" stroke-width="1.3">
+    <path d="M300,33 L300,39" marker-end="url(#arw)"/>
+    <path d="M300,80 L300,91" marker-end="url(#arw)"/>
+    <path d="M410,118 L451,118" marker-end="url(#arw)"/>
+    <path d="M300,144 L300,175" marker-end="url(#arw)"/>
+    <path d="M300,218 L300,241" marker-end="url(#arw)"/>
+    <path d="M300,278 L300,295" marker-end="url(#arw)"/>
+    <path d="M300,344 L300,363" marker-end="url(#arw)"/>
+    <path d="M300,404 L300,423" marker-end="url(#arw)"/>
+    <path d="M208,448 L148,448 L148,499" marker-end="url(#arw)"/>
+    <path d="M392,448 L455,448 L455,495" marker-end="url(#arw)"/>
+    <path d="M455,534 L455,544" marker-end="url(#arw)"/>
+    <path d="M148,546 L148,582 L300,582"/>
+    <path d="M455,575 L455,582 L300,582"/>
+    <path d="M300,582 L300,589" marker-end="url(#arw)"/>
+    <path d="M300,632 L300,647" marker-end="url(#arw)"/>
+    <path d="M175,667 L26,667 L26,320 L205,320" marker-end="url(#arw)" stroke-dasharray="4 3"/>
+    <path d="M394,320 L574,320 L574,720 L426,720" marker-end="url(#arw)"/>
+  </g>
+
+  <g fill="#eee" stroke="#888" stroke-width="1.2">
+    <ellipse cx="300" cy="18" rx="44" ry="13"/>
+    <polygon points="300,92 410,118 300,144 190,118"/>
+    <polygon points="300,296 394,320 300,344 206,320"/>
+    <polygon points="300,424 392,448 300,472 208,448"/>
+    <ellipse cx="455" cy="560" rx="84" ry="15"/>
+  </g>
+
+  <g fill="#fff" stroke="#888" stroke-width="1.2">
+    <rect x="175" y="40" width="250" height="40" rx="4"/>
+    <rect x="452" y="98" width="148" height="40" rx="4"/>
+    <rect x="175" y="176" width="250" height="42" rx="4"/>
+    <rect x="175" y="242" width="250" height="36" rx="4"/>
+    <rect x="175" y="364" width="250" height="40" rx="4"/>
+    <rect x="54" y="500" width="188" height="46" rx="4"/>
+    <rect x="358" y="496" width="194" height="38" rx="4"/>
+    <rect x="175" y="590" width="250" height="42" rx="4"/>
+    <rect x="175" y="648" width="250" height="38" rx="4"/>
+    <rect x="175" y="700" width="250" height="40" rx="4"/>
+  </g>
+
+  <g font-size="12" font-weight="600" fill="#000">
+    <text x="300" y="22">inicio</text>
+    <text x="300" y="57">capturar argumentos</text>
+    <text x="300" y="115">programación defensiva</text>
+    <text x="526" y="114">imprimir error</text>
+    <text x="300" y="193">reservar el mundo (a N)</text>
+    <text x="300" y="257">construir la escena</text>
+    <text x="300" y="324">¿cerrar ventana?</text>
+    <text x="300" y="381">spawn estrellas · drift centros</text>
+    <text x="300" y="452">¿--parallel?</text>
+    <text x="148" y="520">sys_update — 1 hilo</text>
+    <text x="455" y="514">#pragma omp parallel for</text>
+    <text x="455" y="564">barrera implícita</text>
+    <text x="300" y="607">aplicar bajas · muestrear estelas</text>
+    <text x="300" y="664">render + FPS en pantalla</text>
+    <text x="300" y="719">resumen: FPS · ms · speedup</text>
+  </g>
+
+  <g font-family="monospace" font-size="9" fill="#555">
+    <text x="300" y="70">N · modo · --threads · --stars …</text>
+    <text x="300" y="128">¿N, hilos, ventana válidos?</text>
+    <text x="526" y="127">+ ayuda · salir ≠ 0</text>
+    <text x="300" y="207">World · SolarSystems · TrailBuffer (heap)</text>
+    <text x="300" y="270">spawn de sistemas + estrellas</text>
+    <text x="300" y="394">recorridos seriales, pequeños</text>
+    <text x="148" y="533">centelleo · órbita · vida</text>
+    <text x="455" y="527">schedule(static,64) · T hilos</text>
+    <text x="300" y="621">serial, hilo principal</text>
+    <text x="300" y="677">OpenGL — sólo hilo principal</text>
+    <text x="300" y="732">liberar memoria · salir</text>
+  </g>
+
+  <g font-family="monospace" font-size="9.5" fill="#222">
+    <text x="430" y="113">no</text>
+    <text x="308" y="163" text-anchor="start">sí</text>
+    <text x="308" y="359" text-anchor="start">no</text>
+    <text x="160" y="440" text-anchor="end">no</text>
+    <text x="432" y="440" text-anchor="start">sí</text>
+    <text x="402" y="314" text-anchor="start">sí</text>
+    <text x="18" y="490" transform="rotate(-90 18 490)">fotograma siguiente</text>
+  </g>
+</svg>
+</div>
+<figcaption><b>Figura 1.</b> Diagrama de flujo. El rombo «¿--parallel?» separa las
+dos rutas de actualización; la única sincronía es la barrera implícita al cerrar
+la región. La destrucción de entidades y el render quedan siempre en el hilo
+principal. La ruta paralela sólo se toma con más de 6144 entidades.</figcaption>
+</figure>
+
+</div>

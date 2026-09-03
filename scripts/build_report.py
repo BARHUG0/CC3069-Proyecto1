@@ -117,8 +117,8 @@ def build_dataset():
     if is_sample:
         seq, par = _sample_summaries()
 
-    ns = sorted({n for n in seq} & {n for (n, _t) in par})
-    thread_counts = sorted({t for (_n, t) in par})
+    ns = sorted({n for n in seq} & {n for (n, _) in par})
+    thread_counts = sorted({t for (_, t) in par})
     if not thread_counts:
         thread_counts = [4]
 
@@ -980,7 +980,7 @@ def slides_html(d):
       <p class="tbl-note">Las corridas individuales detrás de las medianas. La
       variación entre corridas de una misma configuración es de <b>décimas de
       milisegundo</b>, salvo a N=1000, donde el poco trabajo y el estado térmico
-      inicial amplifican el ruido — por eso ese punto es el menos fiable.</p>
+      inicial amplifican el ruido.</p>
     </div></section>""")
 
     # 13 — escalado 1M

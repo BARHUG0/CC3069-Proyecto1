@@ -1,5 +1,8 @@
 # CC3069 Proyecto1 — Screensaver ECS
 
+> # 📄 LEER: [**`Proyecto1-Informe.pdf`**](./Proyecto1-Informe.pdf)
+> ## El informe del proyecto está en **[`Proyecto1-Informe.pdf`](./Proyecto1-Informe.pdf)** — ese es el documento que deben leer.
+
 Screensaver de campo de estrellas + N sistemas solares, en C11 con [raylib](https://www.raylib.com/) y una arquitectura ECS orientada a datos (ver `src/ecs.h`).
 
 ## Requisitos
@@ -39,6 +42,16 @@ brew install raylib libomp
 make
 ./screensaver 6
 ./screensaver 6 --parallel
+```
+
+### Sequencial
+```
+./screensaver 1000 --sequential --fullscreen --deadstar
+```
+
+### Paralelo
+```
+./screensaver 1000 --parallel --fullscreen --deadstar
 ```
 
 El `Makefile` usa `pkg-config` para ubicar raylib y `brew --prefix libomp` para el runtime de OpenMP, así que Homebrew debe estar en el PATH.
