@@ -103,7 +103,8 @@
   /* nav: bottom bar + edge click zones */
   .deckbar {
     position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:41;
-    display:flex; align-items:center; gap:.9rem;
+    display:flex; align-items:center; gap:.75rem; flex-wrap:nowrap; white-space:nowrap;
+    max-width:calc(100vw - 2rem);
     padding:.4rem .7rem; border:1px solid var(--hair); border-radius:999px;
     background:color-mix(in srgb,var(--surface) 88%,transparent); backdrop-filter:blur(6px);
   }
@@ -114,9 +115,9 @@
   }
   .deckbar button:disabled { opacity:.35; cursor:default; }
   .deckbar button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  .dots { display:flex; gap:.4rem; }
-  .dot { width:7px; height:7px; border-radius:50%; background:var(--hair); border:0;
-         padding:0; cursor:pointer; }
+  .dots { display:flex; gap:.32rem; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--hair); border:0;
+         padding:0; cursor:pointer; flex:0 0 auto; }
   .dot.on { background:var(--accent); }
   #counter { font-family:var(--font-mono); font-size:.76rem; color:var(--ink-2);
              font-variant-numeric:tabular-nums; min-width:3.4em; text-align:center; }
@@ -164,6 +165,12 @@
           margin:1.1rem 0; color:var(--ink-2); max-width:66ch; }
   .foot-cfg { font-family:var(--font-mono); font-size:.74rem; color:var(--muted);
               margin-top:.4rem; }
+  .tbl-note { font-size:.95rem; color:var(--ink-2); margin:.5rem 0 0; max-width:72ch; }
+  .tbl-note b { color:var(--ink); }
+
+  .ecs-fig { margin:.4rem 0 0; }
+  .ecs-fig svg { display:block; width:100%; height:auto; overflow:visible;
+                 border:1px solid var(--hair); border-radius:12px; background:var(--surface); }
 
   ul.pcam { list-style:none; padding:0; margin:1.1rem 0 0; display:grid; gap:.85rem; }
   ul.pcam li { padding-left:2.3rem; position:relative; color:var(--ink-2); max-width:74ch; }
@@ -211,7 +218,7 @@
         <div class="stat"><div class="v">54%</div><div class="k">eficiencia en ese punto</div></div>
         <div class="stat"><div class="v">4</div><div class="k">hilos OpenMP</div></div>
       </div>
-      <p class="foot-cfg">Generado 2026-09-03 00:26 UTC · summary-speedup-sequential-20260902-172300.csv</p>
+      <p class="foot-cfg">Generado 2026-09-03 00:44 UTC · summary-speedup-sequential-20260902-172300.csv</p>
     </div></section>
 <section class="slide"><span class="num">02</span><div class="slide-inner">
       <p class="eyebrow">Método — PCAM</p>
@@ -243,7 +250,22 @@
         operaciones atómicas.</li>
       </ul>
     </div></section>
-<section class="slide"><span class="num">03</span><div class="slide-inner">
+<section class="slide wide"><span class="num">03</span><div class="slide-inner">
+      <p class="eyebrow">Diseño — orientado a datos</p>
+      <h2>ECS vs. objetos: por qué el layout hace barata la paralelización</h2>
+      <div class="ecs-fig"><svg viewBox="0 0 960 411" role="img" aria-label="Comparación de layout de memoria: array de structs frente a struct de arrays"><text x="4" y="15" font-size="13.5" text-anchor="start" font-family="IBM Plex Mono, monospace" style="fill:var(--ink)" font-weight="700" font-family="Archivo, sans-serif">Orientado a objetos — un <tspan style="fill:var(--seq)">struct Planeta</tspan> por planeta</text><text x="4" y="33" font-size="9.5" text-anchor="start" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >cada objeto lleva TODOS sus campos juntos → el arreglo es de objetos</text><rect x="4" y="78" width="166" height="44" rx="4" style="fill:none;stroke:var(--hair)"/><rect x="5" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="18" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >px</text><rect x="33" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="46" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >py</text><rect x="60" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="73" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vx</text><rect x="88" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="101" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vy</text><rect x="116" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="128" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >col</text><rect x="143" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="156" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >masa</text><rect x="200" y="78" width="166" height="44" rx="4" style="fill:none;stroke:var(--hair)"/><rect x="202" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="214" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >px</text><rect x="229" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="242" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >py</text><rect x="257" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="270" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vx</text><rect x="284" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="297" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vy</text><rect x="312" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="325" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >col</text><rect x="340" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="353" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >masa</text><rect x="397" y="78" width="166" height="44" rx="4" style="fill:none;stroke:var(--hair)"/><rect x="398" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="411" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >px</text><rect x="426" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="438" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >py</text><rect x="453" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="466" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vx</text><rect x="481" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="494" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vy</text><rect x="509" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="522" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >col</text><rect x="536" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="549" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >masa</text><rect x="594" y="78" width="166" height="44" rx="4" style="fill:none;stroke:var(--hair)"/><rect x="594" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="607" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >px</text><rect x="622" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="635" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >py</text><rect x="650" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="663" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vx</text><rect x="678" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="690" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vy</text><rect x="705" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="718" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >col</text><rect x="733" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="746" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >masa</text><rect x="790" y="78" width="166" height="44" rx="4" style="fill:none;stroke:var(--hair)"/><rect x="791" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="804" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >px</text><rect x="819" y="80" width="26" height="40" style="fill:var(--accent)"/><text x="832" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:#12151a" >py</text><rect x="846" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="859" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vx</text><rect x="874" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="887" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >vy</text><rect x="902" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="914" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >col</text><rect x="929" y="80" width="26" height="40" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="942" y="103" font-size="8.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--muted)" >masa</text><path d="M4,72 v-7 h166 v7" style="stroke:var(--seq);fill:none" stroke-width="1.5"/><text x="87" y="61" font-size="9" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--seq)" >línea de caché · 64 B</text><text x="87" y="137" font-size="9" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >usa 8 B (px, py) · desperdicia 4 campos</text><text x="4" y="162" font-size="9.5" text-anchor="start" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >bucle de órbita → cada planeta está en otra parte de la memoria (salto por puntero)</text><text x="4" y="196" font-size="13.5" text-anchor="start" font-family="IBM Plex Mono, monospace" style="fill:var(--ink)" font-weight="700" font-family="Archivo, sans-serif">ECS — un arreglo contiguo por campo (<tspan style="fill:var(--accent)">struct de arrays</tspan>)</text><text x="4" y="214" font-size="9.5" text-anchor="start" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >cada campo es su propio arreglo, sin huecos ni punteros</text><text x="52" y="250" font-size="9" text-anchor="end" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >mask[]</text><rect x="61" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="107" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="153" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="199" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="245" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="291" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="337" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="383" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="429" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="475" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="521" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="567" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="613" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="659" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="705" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="751" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="797" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="843" y="236" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="52" y="276" font-size="9" text-anchor="end" font-family="IBM Plex Mono, monospace" style="fill:var(--accent)" >px[]</text><rect x="61" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="107" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="153" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="199" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="245" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="291" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="337" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="383" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="429" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="475" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="521" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="567" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="613" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="659" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="705" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="751" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="797" y="263" width="44" height="21" style="fill:var(--accent)"/><rect x="843" y="263" width="44" height="21" style="fill:var(--accent)"/><text x="52" y="304" font-size="9" text-anchor="end" font-family="IBM Plex Mono, monospace" style="fill:var(--accent)" >py[]</text><rect x="61" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="107" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="153" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="199" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="245" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="291" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="337" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="383" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="429" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="475" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="521" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="567" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="613" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="659" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="705" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="751" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="797" y="290" width="44" height="21" style="fill:var(--accent)"/><rect x="843" y="290" width="44" height="21" style="fill:var(--accent)"/><text x="52" y="330" font-size="9" text-anchor="end" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >oang[]</text><rect x="61" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="107" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="153" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="199" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="245" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="291" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="337" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="383" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="429" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="475" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="521" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="567" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="613" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="659" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="705" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="751" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="797" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="843" y="317" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><text x="52" y="358" font-size="9" text-anchor="end" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >rad[]</text><rect x="61" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="107" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="153" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="199" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="245" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="291" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="337" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="383" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="429" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="475" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="521" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="567" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="613" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="659" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="705" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="751" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="797" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><rect x="843" y="344" width="44" height="21" style="fill:var(--surface-2);stroke:var(--hair)"/><path d="M60,257 v-7 h736 v7" style="stroke:var(--seq);fill:none" stroke-width="1.5"/><text x="428" y="246" font-size="9" text-anchor="middle" font-family="IBM Plex Mono, monospace" style="fill:var(--seq)" >línea de caché · 64 B → 16 posiciones seguidas</text><path d="M60,383 H880" style="stroke:var(--accent);fill:none" stroke-width="1.6"/><path d="M880,383 l-7,-4 v8 z" style="fill:var(--accent)"/><text x="60" y="401" font-size="9.5" text-anchor="start" font-family="IBM Plex Mono, monospace" style="fill:var(--ink-2)" >bucle de órbita → recorre px[] y py[] de corrido; el compilador lo vectoriza</text></svg></div>
+      <p class="tbl-note">En un diseño <b>orientado a objetos</b> cada planeta es un
+      <i>struct</i> con todos sus campos juntos; el arreglo es de objetos (o de
+      punteros a objetos). El bucle de órbita sólo necesita <code>px</code> y
+      <code>py</code>, pero cada línea de caché arrastra los otros 4 campos y —
+      con punteros — salta a memoria dispersa. En el <b>ECS</b> cada campo es su
+      propio arreglo contiguo (<i>struct de arrays</i>): el bucle recorre
+      <code>px[]</code> y <code>py[]</code> de corrido, una línea de caché trae 16
+      posiciones útiles, no hay punteros que seguir y el compilador vectoriza.
+      Repartir ese recorrido entre hilos es dar a cada uno un tramo contiguo —
+      sin fragmentación, sin <i>false sharing</i>, sin sincronía.</p>
+    </div></section>
+<section class="slide"><span class="num">04</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 1 de 6</p>
       <h2>Speedup de la actualización</h2>
       <figure><div class="chart-card"><div id="c-speedup"></div></div>
@@ -253,7 +275,7 @@
         entidades y la ruta paralela cae a la secuencial a propósito.</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">04</span><div class="slide-inner">
+<section class="slide"><span class="num">05</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 2 de 6</p>
       <h2>Eficiencia</h2>
       <figure><div class="chart-card"><div id="c-eff"></div></div>
@@ -263,7 +285,7 @@
         100 %.</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">05</span><div class="slide-inner">
+<section class="slide"><span class="num">06</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 3 de 6</p>
       <h2>Speedup vs número de hilos</h2>
       <div class="legend" id="leg-sp-threads"></div>
@@ -273,7 +295,7 @@
         núcleos físicos hacia la sobresuscripción ya no compra tiempo.</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">06</span><div class="slide-inner">
+<section class="slide"><span class="num">07</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 4 de 6</p>
       <h2>Eficiencia vs número de hilos</h2>
       <div class="legend" id="leg-eff-threads"></div>
@@ -283,7 +305,7 @@
         memoria, compartido por todos los hilos.</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">07</span><div class="slide-inner">
+<section class="slide"><span class="num">08</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 5 de 6</p>
       <h2>FPS totales</h2>
       <div class="legend" id="leg-fps"></div>
@@ -293,7 +315,7 @@
         actualización casi no mueve los FPS totales — comportamiento esperado.</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">08</span><div class="slide-inner">
+<section class="slide"><span class="num">09</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 6 de 6</p>
       <h2>Costo de actualización ECS</h2>
       <div class="legend" id="leg-ms"></div>
@@ -303,39 +325,55 @@
         (eje N logarítmico).</figcaption>
       </figure>
     </div></section>
-<section class="slide wide"><span class="num">09</span><div class="slide-inner">
+<section class="slide wide"><span class="num">10</span><div class="slide-inner">
       <p class="eyebrow">Bitácora · resumen</p>
       <h2>Resumen por N</h2>
       <div class="tbl-wrap"><table><thead><tr><th>N</th><th>t_seq (ms)</th><th>t_par (4h, ms)</th><th>speedup</th><th>eficiencia</th><th>FPS seq</th><th>FPS par</th></tr></thead><tbody><tr><td>1,000</td><td>0.086</td><td>0.108</td><td class='t-accent'>0.80×</td><td>20%</td><td>55</td><td>37</td></tr><tr><td>5,000</td><td>0.461</td><td>0.223</td><td class='t-accent'>2.07×</td><td>52%</td><td>13</td><td>13</td></tr><tr><td>15,000</td><td>1.392</td><td>0.648</td><td class='t-accent'>2.15×</td><td>54%</td><td>5</td><td>5</td></tr></tbody></table></div>
+      <p class="tbl-note">A N pequeño el paralelismo casi no rinde: a N=1,000 el speedup es 0.80× porque arrancar la región paralela cuesta casi tanto como el trabajo. A N=15,000 el tiempo de actualización baja a menos de la mitad (2.15×), con 54% de eficiencia sobre 4 hilos. <b>Los FPS totales casi no cambian</b>
+      entre secuencial y paralelo: los fija el render, que corre en un solo hilo.
+      La columna que importa es el tiempo de actualización (<code>t_seq</code> vs
+      <code>t_par</code>).</p>
       <p class="foot-cfg">Escena fija: semilla 20260831,
       1280×720, 500 estrellas,
-      <code>--no-vsync</code> · 10 corridas por (N, hilos) ·
-      métrica = Actualización ECS ms/fotograma, aislada del render.</p>
+      <code>--no-vsync</code> · 10 corridas por (N, hilos).</p>
     </div></section>
-<section class="slide wide"><span class="num">10</span><div class="slide-inner">
+<section class="slide wide"><span class="num">11</span><div class="slide-inner">
       <p class="eyebrow">Bitácora · hilos</p>
       <h2>Speedup por N y número de hilos</h2>
       <div class="tbl-wrap"><table><caption>speedup por N y número de hilos</caption><thead><tr><th>N</th><th>1h</th><th>2h</th><th>4h</th><th>8h</th><th>16h</th></tr></thead><tbody><tr><td>1,000</td><td class='t-accent'>0.32×</td><td class='t-accent'>0.26×</td><td class='t-accent'>0.80×</td><td class='t-accent'>1.31×</td><td class='t-accent'>1.15×</td></tr><tr><td>5,000</td><td class='t-accent'>1.01×</td><td class='t-accent'>1.61×</td><td class='t-accent'>2.07×</td><td class='t-accent'>1.52×</td><td class='t-accent'>1.52×</td></tr><tr><td>15,000</td><td class='t-accent'>1.03×</td><td class='t-accent'>1.64×</td><td class='t-accent'>2.15×</td><td class='t-accent'>2.29×</td><td class='t-accent'>2.19×</td></tr></tbody></table></div>
-      <p class="foot-cfg">Cada celda es la mediana de 10 corridas.
+      <p class="tbl-note">Cada fila es un N; cada columna, cuántos hilos OpenMP.
+      El speedup crece rápido hasta <b>4 hilos</b> y ahí se aplana: el pico
+      (2.29× en el N mayor) está en 8, pero de 4 en adelante
+      el tiempo de actualización ya casi no baja — a veces sube — porque todos
+      los hilos comparten el mismo ancho de banda de memoria. Pasar de los
+      núcleos físicos (sobresuscripción) sólo agrega ruido.</p>
+      <p class="foot-cfg">Mediana de 10 corridas por celda ·
       <code>--threads T</code> fuerza exactamente T hilos.</p>
     </div></section>
-<section class="slide wide"><span class="num">11</span><div class="slide-inner">
+<section class="slide wide"><span class="num">12</span><div class="slide-inner">
       <p class="eyebrow">Bitácora · corridas</p>
       <h2>Mediciones crudas</h2>
-      <div class="tbl-wrap"><table><caption>Corridas — secuencial · 16 corridas</caption><thead><tr><th>N</th><th>FPS medio</th><th>FPS min 1s</th><th>Update ms</th><th>Muestras</th></tr></thead><tbody><tr><td>1000</td><td>56.309</td><td>55.235</td><td>0.081336</td><td>10</td></tr><tr><td>1000</td><td>55.744</td><td>54.546</td><td>0.085241</td><td>10</td></tr><tr><td>1000</td><td>55.475</td><td>54.136</td><td>0.082671</td><td>10</td></tr><tr><td>1000</td><td>55.548</td><td>53.578</td><td>0.098424</td><td>10</td></tr><tr><td>1000</td><td>55.230</td><td>53.950</td><td>0.083945</td><td>10</td></tr><tr><td>1000</td><td>55.181</td><td>53.539</td><td>0.083821</td><td>10</td></tr><tr><td>1000</td><td>55.427</td><td>53.697</td><td>0.083714</td><td>10</td></tr><tr><td>1000</td><td>55.039</td><td>52.844</td><td>0.087194</td><td>10</td></tr><tr><td>1000</td><td>55.166</td><td>53.720</td><td>0.088676</td><td>10</td></tr><tr><td>1000</td><td>54.954</td><td>53.293</td><td>0.086828</td><td>10</td></tr><tr><td>5000</td><td>12.646</td><td>11.614</td><td>0.465828</td><td>10</td></tr><tr><td>5000</td><td>12.655</td><td>11.964</td><td>0.457556</td><td>10</td></tr><tr><td>5000</td><td>12.575</td><td>11.490</td><td>0.463614</td><td>10</td></tr><tr><td>5000</td><td>12.481</td><td>11.415</td><td>0.460246</td><td>10</td></tr><tr><td>5000</td><td>12.695</td><td>11.644</td><td>0.457773</td><td>10</td></tr><tr><td>5000</td><td>12.674</td><td>11.963</td><td>0.468877</td><td>10</td></tr></tbody></table></div>
-      <div class="tbl-wrap"><table><caption>Corridas — paralelo · 16 corridas</caption><thead><tr><th>N</th><th>FPS medio</th><th>FPS min 1s</th><th>Update ms</th><th>Muestras</th></tr></thead><tbody><tr><td>1000</td><td>31.381</td><td>25.863</td><td>0.127291</td><td>10</td></tr><tr><td>1000</td><td>25.235</td><td>19.060</td><td>0.191320</td><td>10</td></tr><tr><td>1000</td><td>21.298</td><td>16.704</td><td>0.245254</td><td>10</td></tr><tr><td>1000</td><td>21.519</td><td>16.289</td><td>0.244071</td><td>10</td></tr><tr><td>1000</td><td>18.742</td><td>13.302</td><td>0.288033</td><td>10</td></tr><tr><td>1000</td><td>15.486</td><td>13.141</td><td>0.343509</td><td>10</td></tr><tr><td>1000</td><td>18.261</td><td>11.897</td><td>0.294512</td><td>10</td></tr><tr><td>1000</td><td>17.040</td><td>13.191</td><td>0.307990</td><td>10</td></tr><tr><td>1000</td><td>16.627</td><td>12.976</td><td>0.316082</td><td>10</td></tr><tr><td>1000</td><td>14.717</td><td>13.070</td><td>0.370598</td><td>10</td></tr><tr><td>1000</td><td>16.797</td><td>12.840</td><td>0.300685</td><td>10</td></tr><tr><td>1000</td><td>15.164</td><td>12.799</td><td>0.331011</td><td>10</td></tr><tr><td>1000</td><td>15.610</td><td>12.946</td><td>0.332710</td><td>10</td></tr><tr><td>1000</td><td>15.486</td><td>13.294</td><td>0.331652</td><td>10</td></tr><tr><td>1000</td><td>14.578</td><td>13.442</td><td>0.378898</td><td>10</td></tr><tr><td>1000</td><td>15.594</td><td>13.216</td><td>0.309769</td><td>10</td></tr></tbody></table></div>
-    </div></section>
-<section class="slide"><span class="num">12</span><div class="slide-inner">
-      <p class="eyebrow">Escalado</p>
-      <h2>N = 1 000 000</h2>
-      <p>El mundo se dimensiona en tiempo de ejecución a la N pedida (World,
-      SolarSystems y TrailBuffer en heap). Un millón de sistemas ≈ 6 millones de
-      entidades y ~0,7 GB de memoria. Renderiza a menos de 1 FPS — «corre aunque se
-      vea saturado», que era el objetivo. El <code>--benchmark</code> no aplica a ese
-      N (nunca junta 10 muestras de 1&nbsp;s); se mide con <code>--frames</code>.</p>
-      <div class="tbl-wrap"><table><thead><tr><th>Versión</th><th>N</th><th>Entidades</th><th>Update ms</th><th>FPS medio</th><th>Fotogramas</th></tr></thead><tbody><tr><td>sequential</td><td>1000000</td><td>6002640</td><td>104.500</td><td>0.1</td><td>5</td></tr></tbody></table></div>
+      <div class="tbl-wrap"><table><caption>Corridas — secuencial · 12 corridas</caption><thead><tr><th>N</th><th>FPS medio</th><th>FPS min 1s</th><th>Update ms</th><th>Muestras</th></tr></thead><tbody><tr><td>1000</td><td>56.309</td><td>55.235</td><td>0.081336</td><td>10</td></tr><tr><td>1000</td><td>55.744</td><td>54.546</td><td>0.085241</td><td>10</td></tr><tr><td>1000</td><td>55.475</td><td>54.136</td><td>0.082671</td><td>10</td></tr><tr><td>1000</td><td>55.548</td><td>53.578</td><td>0.098424</td><td>10</td></tr><tr><td>1000</td><td>55.230</td><td>53.950</td><td>0.083945</td><td>10</td></tr><tr><td>1000</td><td>55.181</td><td>53.539</td><td>0.083821</td><td>10</td></tr><tr><td>1000</td><td>55.427</td><td>53.697</td><td>0.083714</td><td>10</td></tr><tr><td>1000</td><td>55.039</td><td>52.844</td><td>0.087194</td><td>10</td></tr><tr><td>1000</td><td>55.166</td><td>53.720</td><td>0.088676</td><td>10</td></tr><tr><td>1000</td><td>54.954</td><td>53.293</td><td>0.086828</td><td>10</td></tr><tr><td>5000</td><td>12.646</td><td>11.614</td><td>0.465828</td><td>10</td></tr><tr><td>5000</td><td>12.655</td><td>11.964</td><td>0.457556</td><td>10</td></tr></tbody></table></div>
+      <div class="tbl-wrap"><table><caption>Corridas — paralelo (mezcla de hilos) · 12 corridas</caption><thead><tr><th>N</th><th>FPS medio</th><th>FPS min 1s</th><th>Update ms</th><th>Muestras</th></tr></thead><tbody><tr><td>1000</td><td>31.381</td><td>25.863</td><td>0.127291</td><td>10</td></tr><tr><td>1000</td><td>25.235</td><td>19.060</td><td>0.191320</td><td>10</td></tr><tr><td>1000</td><td>21.298</td><td>16.704</td><td>0.245254</td><td>10</td></tr><tr><td>1000</td><td>21.519</td><td>16.289</td><td>0.244071</td><td>10</td></tr><tr><td>1000</td><td>18.742</td><td>13.302</td><td>0.288033</td><td>10</td></tr><tr><td>1000</td><td>15.486</td><td>13.141</td><td>0.343509</td><td>10</td></tr><tr><td>1000</td><td>18.261</td><td>11.897</td><td>0.294512</td><td>10</td></tr><tr><td>1000</td><td>17.040</td><td>13.191</td><td>0.307990</td><td>10</td></tr><tr><td>1000</td><td>16.627</td><td>12.976</td><td>0.316082</td><td>10</td></tr><tr><td>1000</td><td>14.717</td><td>13.070</td><td>0.370598</td><td>10</td></tr><tr><td>1000</td><td>16.797</td><td>12.840</td><td>0.300685</td><td>10</td></tr><tr><td>1000</td><td>15.164</td><td>12.799</td><td>0.331011</td><td>10</td></tr></tbody></table></div>
+      <p class="tbl-note">Las corridas individuales detrás de las medianas. La
+      variación entre corridas de una misma configuración es de <b>décimas de
+      milisegundo</b>, salvo a N=1000, donde el poco trabajo y el estado térmico
+      inicial amplifican el ruido — por eso ese punto es el menos fiable.</p>
     </div></section>
 <section class="slide"><span class="num">13</span><div class="slide-inner">
+      <p class="eyebrow">Escalado</p>
+      <h2>N = 1 000 000</h2>
+      <p>El mundo se reserva en tiempo de ejecución al tamaño de la N pedida
+      (World, SolarSystems y TrailBuffer en heap): un millón de sistemas son
+      ~6&nbsp;millones de entidades y ~0,7&nbsp;GB. Corre — «aunque se vea
+      saturado», que era el objetivo.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>Versión</th><th>N</th><th>Entidades</th><th>Update ms</th><th>FPS medio</th><th>Fotogramas</th></tr></thead><tbody><tr><td>sequential</td><td>1000000</td><td>6002640</td><td>104.500</td><td>0.1</td><td>5</td></tr></tbody></table></div>
+      <p class="tbl-note">Actualizar esas 6 millones de entidades toma <b>104&nbsp;ms por fotograma</b> — unas mil veces el costo de N=5000 — y dibujar ese fotograma, ~12&nbsp;s. Este punto muestra que el programa <b>no se
+      rompe</b> a esa escala, no sirve para medir speedup: a &lt;1&nbsp;FPS el
+      <code>--benchmark</code> nunca junta sus 10 muestras de 1&nbsp;s, así que se
+      mide con <code>--frames</code>.</p>
+    </div></section>
+<section class="slide"><span class="num">14</span><div class="slide-inner">
       <p class="eyebrow">Conclusiones</p>
       <h2>Lo que muestran los números</h2>
       <ul class="pcam">
@@ -353,7 +391,7 @@
         hilos, es lo que topa la eficiencia por debajo del 100 %.</li>
       </ul>
     </div></section>
-<section class="slide wide"><span class="num">14</span><div class="slide-inner">
+<section class="slide wide"><span class="num">15</span><div class="slide-inner">
       <p class="eyebrow">Trabajo futuro</p>
       <h2>Cómo subir el speedup y la eficiencia</h2>
       <div class="cols">

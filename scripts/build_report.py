@@ -309,7 +309,8 @@ TEMPLATE = r"""<title>Bitácora del Screensaver OpenMP</title>
   /* nav: bottom bar + edge click zones */
   .deckbar {
     position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:41;
-    display:flex; align-items:center; gap:.9rem;
+    display:flex; align-items:center; gap:.75rem; flex-wrap:nowrap; white-space:nowrap;
+    max-width:calc(100vw - 2rem);
     padding:.4rem .7rem; border:1px solid var(--hair); border-radius:999px;
     background:color-mix(in srgb,var(--surface) 88%,transparent); backdrop-filter:blur(6px);
   }
@@ -320,9 +321,9 @@ TEMPLATE = r"""<title>Bitácora del Screensaver OpenMP</title>
   }
   .deckbar button:disabled { opacity:.35; cursor:default; }
   .deckbar button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  .dots { display:flex; gap:.4rem; }
-  .dot { width:7px; height:7px; border-radius:50%; background:var(--hair); border:0;
-         padding:0; cursor:pointer; }
+  .dots { display:flex; gap:.32rem; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--hair); border:0;
+         padding:0; cursor:pointer; flex:0 0 auto; }
   .dot.on { background:var(--accent); }
   #counter { font-family:var(--font-mono); font-size:.76rem; color:var(--ink-2);
              font-variant-numeric:tabular-nums; min-width:3.4em; text-align:center; }
@@ -370,6 +371,12 @@ TEMPLATE = r"""<title>Bitácora del Screensaver OpenMP</title>
           margin:1.1rem 0; color:var(--ink-2); max-width:66ch; }
   .foot-cfg { font-family:var(--font-mono); font-size:.74rem; color:var(--muted);
               margin-top:.4rem; }
+  .tbl-note { font-size:.95rem; color:var(--ink-2); margin:.5rem 0 0; max-width:72ch; }
+  .tbl-note b { color:var(--ink); }
+
+  .ecs-fig { margin:.4rem 0 0; }
+  .ecs-fig svg { display:block; width:100%; height:auto; overflow:visible;
+                 border:1px solid var(--hair); border-radius:12px; background:var(--surface); }
 
   ul.pcam { list-style:none; padding:0; margin:1.1rem 0 0; display:grid; gap:.85rem; }
   ul.pcam li { padding-left:2.3rem; position:relative; color:var(--ink-2); max-width:74ch; }
@@ -631,6 +638,81 @@ def esc(s):
     return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
+def ecs_diagram_svg():
+    """Diagrama de layout de memoria: array de structs (POO) vs SoA (ECS)."""
+    W = 960
+    E = []
+    mono = 'font-family="IBM Plex Mono, monospace"'
+    disp = 'font-family="Archivo, sans-serif"'
+    use = 'style="fill:var(--accent)"'
+    unused = 'style="fill:var(--surface-2);stroke:var(--hair)"'
+    ink = 'style="fill:var(--ink)"'
+    ink2 = 'style="fill:var(--ink-2)"'
+    seqc = 'style="fill:var(--seq)"'
+    seqs = 'style="stroke:var(--seq);fill:none"'
+
+    def t(x, y, s, size=9.5, anchor="start", cls=ink2, extra=""):
+        E.append(f'<text x="{x:.0f}" y="{y:.0f}" font-size="{size}" '
+                 f'text-anchor="{anchor}" {mono} {cls} {extra}>{s}</text>')
+
+    # ===== POO: array de structs =====
+    t(4, 15, 'Orientado a objetos — un <tspan style="fill:var(--seq)">struct Planeta</tspan> por planeta',
+      13.5, cls=ink, extra=f'font-weight="700" {disp}')
+    t(4, 33, 'cada objeto lleva TODOS sus campos juntos → el arreglo es de objetos')
+    fields = ["px", "py", "vx", "vy", "col", "masa"]
+    card_w, card_h, top = 166, 44, 78
+    gapx = (W - 8 - 5 * card_w) / 4
+    for i in range(5):
+        x = 4 + i * (card_w + gapx)
+        E.append(f'<rect x="{x:.0f}" y="{top}" width="{card_w}" height="{card_h}" rx="4" style="fill:none;stroke:var(--hair)"/>')
+        sw = card_w / len(fields)
+        for j, f in enumerate(fields):
+            cx = x + j * sw
+            E.append(f'<rect x="{cx+1:.0f}" y="{top+2}" width="{sw-2:.0f}" height="{card_h-4}" '
+                     f'{use if j < 2 else unused}/>')
+            fc = '#12151a' if j < 2 else 'var(--muted)'
+            t(cx + sw / 2, top + card_h / 2 + 3, f, 8.5, "middle", f'style="fill:{fc}"')
+    # bracket de linea de cache sobre la tarjeta 0
+    E.append(f'<path d="M4,{top-6} v-7 h{card_w} v7" {seqs} stroke-width="1.5"/>')
+    t(4 + card_w / 2, top - 17, "línea de caché · 64 B", 9, "middle", seqc)
+    t(4 + card_w / 2, top + card_h + 15, "usa 8 B (px, py) · desperdicia 4 campos", 9, "middle")
+    # nota de fragmentacion (texto, no flecha — mas limpio)
+    t(4, top + card_h + 40,
+      'bucle de órbita → cada planeta está en otra parte de la memoria (salto por puntero)')
+
+    # ===== ECS: struct de arrays =====
+    y0 = top + card_h + 74
+    t(4, y0, 'ECS — un arreglo contiguo por campo (<tspan style="fill:var(--accent)">struct de arrays</tspan>)',
+      13.5, cls=ink, extra=f'font-weight="700" {disp}')
+    t(4, y0 + 18, 'cada campo es su propio arreglo, sin huecos ni punteros')
+    rows = [("mask[]", 0), ("px[]", 1), ("py[]", 1), ("oang[]", 0), ("rad[]", 0)]
+    cells, cw, ch, gap = 18, 46, 21, 6
+    grid_x = 60
+    ry = y0 + 40
+    px_y = None
+    for name, hot in rows:
+        if name == "px[]":
+            px_y = ry
+        t(grid_x - 8, ry + ch / 2 + 3, name, 9, "end",
+          'style="fill:var(--accent)"' if hot else ink2)
+        for c in range(cells):
+            E.append(f'<rect x="{grid_x+c*cw+1}" y="{ry}" width="{cw-2}" height="{ch}" '
+                     f'{use if hot else unused}/>')
+        ry += ch + gap
+    # bracket de linea de cache sobre px[]  (16 celdas)
+    E.append(f'<path d="M{grid_x},{px_y-6} v-7 h{16*cw} v7" {seqs} stroke-width="1.5"/>')
+    t(grid_x + 8 * cw, px_y - 17, "línea de caché · 64 B → 16 posiciones seguidas", 9, "middle", seqc)
+    # flecha recta del bucle, debajo de todas las filas
+    ay = ry + 12
+    E.append(f'<path d="M{grid_x},{ay} H{grid_x+cells*cw-8}" style="stroke:var(--accent);fill:none" stroke-width="1.6"/>')
+    E.append(f'<path d="M{grid_x+cells*cw-8},{ay} l-7,-4 v8 z" style="fill:var(--accent)"/>')
+    t(grid_x, ay + 18, "bucle de órbita → recorre px[] y py[] de corrido; el compilador lo vectoriza")
+
+    return (f'<svg viewBox="0 0 {W} {ay+28}" role="img" '
+            f'aria-label="Comparación de layout de memoria: array de structs frente a struct de arrays">'
+            + "".join(E) + "</svg>")
+
+
 def slides_html(d):
     P = d["points"]
     best = max(P, key=lambda p: p["speedup"]) if P else {"speedup": 0, "n": 0, "efficiency": 0}
@@ -699,6 +781,22 @@ def slides_html(d):
                 f'</tr></thead><tbody>{rows}</tbody></table></div>')
 
     th = d["threads"]
+
+    # --- valores para los textos descriptivos ---
+    p_lo = P[0] if P else None
+    p_hi = P[-1] if P else None
+    peak_t, peak_su = th, 0.0
+    if d["vs_threads"]:
+        big = d["vs_threads"][-1]["points"]
+        pk = max(big, key=lambda x: x["speedup"])
+        peak_t, peak_su = pk["t"], pk["speedup"]
+    ceil_ms = None
+    if d["ceiling"]:
+        try:
+            ceil_ms = float(d["ceiling"][0].get("UpdateMs", 0) or 0)
+        except (TypeError, ValueError):
+            ceil_ms = None
+
     S = []
 
     # 1 — portada
@@ -747,10 +845,27 @@ def slides_html(d):
       </ul>
     </div></section>""")
 
+    # 3 — ECS vs POO (diseño orientado a datos) — visualización
+    S.append(f"""<section class="slide wide"><span class="num">03</span><div class="slide-inner">
+      <p class="eyebrow">Diseño — orientado a datos</p>
+      <h2>ECS vs. objetos: por qué el layout hace barata la paralelización</h2>
+      <div class="ecs-fig">{ecs_diagram_svg()}</div>
+      <p class="tbl-note">En un diseño <b>orientado a objetos</b> cada planeta es un
+      <i>struct</i> con todos sus campos juntos; el arreglo es de objetos (o de
+      punteros a objetos). El bucle de órbita sólo necesita <code>px</code> y
+      <code>py</code>, pero cada línea de caché arrastra los otros 4 campos y —
+      con punteros — salta a memoria dispersa. En el <b>ECS</b> cada campo es su
+      propio arreglo contiguo (<i>struct de arrays</i>): el bucle recorre
+      <code>px[]</code> y <code>py[]</code> de corrido, una línea de caché trae 16
+      posiciones útiles, no hay punteros que seguir y el compilador vectoriza.
+      Repartir ese recorrido entre hilos es dar a cada uno un tramo contiguo —
+      sin fragmentación, sin <i>false sharing</i>, sin sincronía.</p>
+    </div></section>""")
+
     tcs = ", ".join(str(t) for t in d["thread_counts"])
 
-    # 3 — speedup vs N
-    S.append(f"""<section class="slide"><span class="num">03</span><div class="slide-inner">
+    # 4 — speedup vs N
+    S.append(f"""<section class="slide"><span class="num">04</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 1 de 6</p>
       <h2>Speedup de la actualización</h2>
       <figure><div class="chart-card"><div id="c-speedup"></div></div>
@@ -761,8 +876,8 @@ def slides_html(d):
       </figure>
     </div></section>""")
 
-    # 4 — eficiencia vs N
-    S.append(f"""<section class="slide"><span class="num">04</span><div class="slide-inner">
+    # 5 — eficiencia vs N
+    S.append(f"""<section class="slide"><span class="num">05</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 2 de 6</p>
       <h2>Eficiencia</h2>
       <figure><div class="chart-card"><div id="c-eff"></div></div>
@@ -773,8 +888,8 @@ def slides_html(d):
       </figure>
     </div></section>""")
 
-    # 5 — speedup vs hilos
-    S.append(f"""<section class="slide"><span class="num">05</span><div class="slide-inner">
+    # 6 — speedup vs hilos
+    S.append(f"""<section class="slide"><span class="num">06</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 3 de 6</p>
       <h2>Speedup vs número de hilos</h2>
       <div class="legend" id="leg-sp-threads"></div>
@@ -785,8 +900,8 @@ def slides_html(d):
       </figure>
     </div></section>""")
 
-    # 6 — eficiencia vs hilos
-    S.append(f"""<section class="slide"><span class="num">06</span><div class="slide-inner">
+    # 7 — eficiencia vs hilos
+    S.append(f"""<section class="slide"><span class="num">07</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 4 de 6</p>
       <h2>Eficiencia vs número de hilos</h2>
       <div class="legend" id="leg-eff-threads"></div>
@@ -797,8 +912,8 @@ def slides_html(d):
       </figure>
     </div></section>""")
 
-    # 7 — FPS vs N
-    S.append(f"""<section class="slide"><span class="num">07</span><div class="slide-inner">
+    # 8 — FPS vs N
+    S.append(f"""<section class="slide"><span class="num">08</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 5 de 6</p>
       <h2>FPS totales</h2>
       <div class="legend" id="leg-fps"></div>
@@ -809,8 +924,8 @@ def slides_html(d):
       </figure>
     </div></section>""")
 
-    # 8 — update ms vs N
-    S.append(f"""<section class="slide"><span class="num">08</span><div class="slide-inner">
+    # 9 — update ms vs N
+    S.append(f"""<section class="slide"><span class="num">09</span><div class="slide-inner">
       <p class="eyebrow">Resultado · 6 de 6</p>
       <h2>Costo de actualización ECS</h2>
       <div class="legend" id="leg-ms"></div>
@@ -821,48 +936,73 @@ def slides_html(d):
       </figure>
     </div></section>""")
 
-    # 9 — bitácora resumen
-    S.append(f"""<section class="slide wide"><span class="num">09</span><div class="slide-inner">
+    # 10 — bitácora resumen
+    lo_txt = (f"A N pequeño el paralelismo casi no rinde: a N={p_lo['n']:,} el speedup "
+              f"es {p_lo['speedup']:.2f}× porque arrancar la región paralela cuesta "
+              f"casi tanto como el trabajo. " if p_lo else "")
+    hi_txt = (f"A N={p_hi['n']:,} el tiempo de actualización baja a menos de la mitad "
+              f"({p_hi['speedup']:.2f}×), con {p_hi['efficiency']*100:.0f}% de "
+              f"eficiencia sobre {th} hilos. " if p_hi else "")
+    S.append(f"""<section class="slide wide"><span class="num">10</span><div class="slide-inner">
       <p class="eyebrow">Bitácora · resumen</p>
       <h2>Resumen por N</h2>
       {summary_table()}
+      <p class="tbl-note">{lo_txt}{hi_txt}<b>Los FPS totales casi no cambian</b>
+      entre secuencial y paralelo: los fija el render, que corre en un solo hilo.
+      La columna que importa es el tiempo de actualización (<code>t_seq</code> vs
+      <code>t_par</code>).</p>
       <p class="foot-cfg">Escena fija: semilla {esc(cfg['seed'])},
       {esc(cfg['width'])}×{esc(cfg['height'])}, {esc(cfg['stars'])} estrellas,
-      <code>--no-vsync</code> · {runs_per_point} corridas por (N, hilos) ·
-      métrica = Actualización ECS ms/fotograma, aislada del render.</p>
+      <code>--no-vsync</code> · {runs_per_point} corridas por (N, hilos).</p>
     </div></section>""")
 
-    # 10 — bitácora por hilos
-    S.append(f"""<section class="slide wide"><span class="num">10</span><div class="slide-inner">
+    # 11 — bitácora por hilos
+    S.append(f"""<section class="slide wide"><span class="num">11</span><div class="slide-inner">
       <p class="eyebrow">Bitácora · hilos</p>
       <h2>Speedup por N y número de hilos</h2>
       {threads_table()}
-      <p class="foot-cfg">Cada celda es la mediana de {runs_per_point} corridas.
+      <p class="tbl-note">Cada fila es un N; cada columna, cuántos hilos OpenMP.
+      El speedup crece rápido hasta <b>{th} hilos</b> y ahí se aplana: el pico
+      ({peak_su:.2f}× en el N mayor) está en {peak_t}, pero de {th} en adelante
+      el tiempo de actualización ya casi no baja — a veces sube — porque todos
+      los hilos comparten el mismo ancho de banda de memoria. Pasar de los
+      núcleos físicos (sobresuscripción) sólo agrega ruido.</p>
+      <p class="foot-cfg">Mediana de {runs_per_point} corridas por celda ·
       <code>--threads T</code> fuerza exactamente T hilos.</p>
     </div></section>""")
 
-    # 11 — bitácora corridas
-    S.append(f"""<section class="slide wide"><span class="num">11</span><div class="slide-inner">
+    # 12 — bitácora corridas
+    S.append(f"""<section class="slide wide"><span class="num">12</span><div class="slide-inner">
       <p class="eyebrow">Bitácora · corridas</p>
       <h2>Mediciones crudas</h2>
-      {runs_table(d['runs']['sequential'][:16], 'Corridas — secuencial')}
-      {runs_table(d['runs']['parallel'][:16], 'Corridas — paralelo')}
+      {runs_table(d['runs']['sequential'][:12], 'Corridas — secuencial')}
+      {runs_table(d['runs']['parallel'][:12], 'Corridas — paralelo (mezcla de hilos)')}
+      <p class="tbl-note">Las corridas individuales detrás de las medianas. La
+      variación entre corridas de una misma configuración es de <b>décimas de
+      milisegundo</b>, salvo a N=1000, donde el poco trabajo y el estado térmico
+      inicial amplifican el ruido — por eso ese punto es el menos fiable.</p>
     </div></section>""")
 
-    # 12 — escalado 1M
-    S.append(f"""<section class="slide"><span class="num">12</span><div class="slide-inner">
+    # 13 — escalado 1M
+    ceil_txt = (f"Actualizar esas 6 millones de entidades toma <b>{ceil_ms:.0f}&nbsp;ms "
+                f"por fotograma</b> — unas mil veces el costo de N=5000 — y dibujar "
+                f"ese fotograma, ~12&nbsp;s. " if ceil_ms else "")
+    S.append(f"""<section class="slide"><span class="num">13</span><div class="slide-inner">
       <p class="eyebrow">Escalado</p>
       <h2>N = 1 000 000</h2>
-      <p>El mundo se dimensiona en tiempo de ejecución a la N pedida (World,
-      SolarSystems y TrailBuffer en heap). Un millón de sistemas ≈ 6 millones de
-      entidades y ~0,7 GB de memoria. Renderiza a menos de 1 FPS — «corre aunque se
-      vea saturado», que era el objetivo. El <code>--benchmark</code> no aplica a ese
-      N (nunca junta 10 muestras de 1&nbsp;s); se mide con <code>--frames</code>.</p>
+      <p>El mundo se reserva en tiempo de ejecución al tamaño de la N pedida
+      (World, SolarSystems y TrailBuffer en heap): un millón de sistemas son
+      ~6&nbsp;millones de entidades y ~0,7&nbsp;GB. Corre — «aunque se vea
+      saturado», que era el objetivo.</p>
       {ceiling_block()}
+      <p class="tbl-note">{ceil_txt}Este punto muestra que el programa <b>no se
+      rompe</b> a esa escala, no sirve para medir speedup: a &lt;1&nbsp;FPS el
+      <code>--benchmark</code> nunca junta sus 10 muestras de 1&nbsp;s, así que se
+      mide con <code>--frames</code>.</p>
     </div></section>""")
 
-    # 13 — conclusiones
-    S.append(f"""<section class="slide"><span class="num">13</span><div class="slide-inner">
+    # 14 — conclusiones
+    S.append(f"""<section class="slide"><span class="num">14</span><div class="slide-inner">
       <p class="eyebrow">Conclusiones</p>
       <h2>Lo que muestran los números</h2>
       <ul class="pcam">
@@ -881,8 +1021,8 @@ def slides_html(d):
       </ul>
     </div></section>""")
 
-    # 14 — mejoras concretas
-    S.append(f"""<section class="slide wide"><span class="num">14</span><div class="slide-inner">
+    # 15 — mejoras concretas
+    S.append(f"""<section class="slide wide"><span class="num">15</span><div class="slide-inner">
       <p class="eyebrow">Trabajo futuro</p>
       <h2>Cómo subir el speedup y la eficiencia</h2>
       <div class="cols">
