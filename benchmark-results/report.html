@@ -9,6 +9,7 @@
     --grid:#e7e6e0;   --hair:rgba(20,22,27,.10);
     --accent:#c07a00;              /* sol — serie paralela / cifras clave */
     --seq:#2a6fd0;                 /* serie secuencial */
+    --s3:#1baf7a; --s4:#d55181; --s5:#4a3aa7;   /* series extra (una por N) */
     --ideal:#8a8f9c;
     --good:#0c7a3c;
     --font-display:"Archivo",system-ui,sans-serif;
@@ -20,150 +21,163 @@
       --plane:#0c0e13; --surface:#151922; --surface-2:#1b202b;
       --ink:#eef0f4;   --ink-2:#9aa3b2;   --muted:#727a8b;
       --grid:#242a36;  --hair:rgba(255,255,255,.10);
-      --accent:#e6a63c; --seq:#4b93ec; --ideal:#727a8b; --good:#3bbf6d;
+      --accent:#e6a63c; --seq:#4b93ec;
+      --s3:#199e70; --s4:#d55181; --s5:#9085e9;
+      --ideal:#727a8b; --good:#3bbf6d;
     }
   }
   :root[data-theme="dark"] {
     --plane:#0c0e13; --surface:#151922; --surface-2:#1b202b;
     --ink:#eef0f4;   --ink-2:#9aa3b2;   --muted:#727a8b;
     --grid:#242a36;  --hair:rgba(255,255,255,.10);
-    --accent:#e6a63c; --seq:#4b93ec; --ideal:#727a8b; --good:#3bbf6d;
+    --accent:#e6a63c; --seq:#4b93ec;
+    --s3:#199e70; --s4:#d55181; --s5:#9085e9;
+    --ideal:#727a8b; --good:#3bbf6d;
   }
 
   * { box-sizing:border-box; }
-  html { scroll-behavior:smooth; }
+  html, body { height:100%; }
   body {
-    margin:0; background:var(--plane); color:var(--ink);
+    margin:0; background:var(--plane); color:var(--ink); overflow:hidden;
     font-family:var(--font-body); font-size:16px; line-height:1.6;
     -webkit-font-smoothing:antialiased;
   }
-  h1,h2,h3 { font-family:var(--font-display); font-weight:800; line-height:1.1;
-             text-wrap:balance; margin:0 0 .4em; letter-spacing:-.01em; }
-  h1 { font-size:clamp(2rem,5vw,3.4rem); }
-  h2 { font-size:clamp(1.5rem,3.4vw,2.3rem); }
-  h3 { font-size:1.15rem; font-weight:700; }
-  p { margin:0 0 1em; max-width:64ch; }
+  h1,h2,h3 { font-family:var(--font-display); font-weight:800; line-height:1.12;
+             text-wrap:balance; margin:0 0 .5em; letter-spacing:-.01em; }
+  h1 { font-size:clamp(1.9rem,4.6vw,3.2rem); }
+  h2 { font-size:clamp(1.4rem,3.2vw,2.15rem); }
+  h3 { font-size:1.05rem; font-weight:700; margin-bottom:.3em; }
+  p { margin:0 0 1em; max-width:66ch; }
   a { color:var(--accent); }
   code, .mono { font-family:var(--font-mono); font-size:.9em; }
   .eyebrow {
     font-family:var(--font-mono); font-size:.72rem; letter-spacing:.15em;
-    text-transform:uppercase; color:var(--muted); margin:0 0 1.4em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 1.2em;
   }
-  .lede { font-size:1.15rem; color:var(--ink-2); max-width:60ch; }
+  .lede { font-size:1.12rem; color:var(--ink-2); max-width:58ch; }
 
   /* ---- chrome ---- */
   .topbar {
-    position:fixed; inset:0 0 auto 0; z-index:50; display:flex;
+    position:fixed; inset:0 0 auto 0; z-index:40; display:flex;
     align-items:center; justify-content:space-between; gap:1rem;
-    padding:.7rem 1.1rem; background:color-mix(in srgb,var(--plane) 86%,transparent);
+    padding:.7rem 1.1rem; background:color-mix(in srgb,var(--plane) 82%,transparent);
     backdrop-filter:blur(8px); border-bottom:1px solid var(--hair);
   }
-  .topbar .brand { font-family:var(--font-mono); font-size:.8rem; color:var(--ink-2);
+  .topbar .brand { font-family:var(--font-mono); font-size:.78rem; color:var(--ink-2);
                    letter-spacing:.04em; }
   .topbar .brand b { color:var(--ink); font-weight:500; }
-  .controls { display:flex; gap:.4rem; }
   .btn {
-    font-family:var(--font-mono); font-size:.75rem; letter-spacing:.03em;
-    padding:.4rem .7rem; border:1px solid var(--hair); border-radius:999px;
+    font-family:var(--font-mono); font-size:.8rem; line-height:1;
+    padding:.45rem .6rem; border:1px solid var(--hair); border-radius:999px;
     background:var(--surface); color:var(--ink-2); cursor:pointer;
   }
-  .btn[aria-pressed="true"] { background:var(--ink); color:var(--plane); border-color:var(--ink); }
   .btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 
   .sample-flag {
-    display:none; margin:0; padding:.55rem 1rem; background:var(--accent);
-    color:#12151a; font-family:var(--font-mono); font-size:.78rem; text-align:center;
-    position:fixed; top:2.9rem; left:0; right:0; z-index:49;
+    display:none; margin:0; padding:.5rem 1rem;
+    background:var(--accent); color:#12151a;
+    font-family:var(--font-mono); font-size:.76rem; text-align:center;
+    position:fixed; top:2.85rem; left:0; right:0; z-index:39;
   }
   body.is-sample .sample-flag { display:block; }
 
-  /* ---- deck vs report ---- */
-  main { --pad:clamp(1.2rem,5vw,4rem); }
+  /* ---- deck ---- */
+  .deck { position:fixed; inset:0; --pad:clamp(1.3rem,5vw,4.5rem); }
   section.slide {
-    min-height:100vh; display:flex; flex-direction:column; justify-content:center;
-    padding:6rem var(--pad) 4rem; scroll-snap-align:start; position:relative;
-    border-bottom:1px solid transparent;
+    position:absolute; inset:0; padding:5.5rem var(--pad) 5rem;
+    display:flex; flex-direction:column; justify-content:flex-start;
+    overflow-y:auto; opacity:0; pointer-events:none;
+    transform:translateX(26px); transition:opacity .34s ease, transform .34s ease;
   }
-  body.is-sample section.slide:first-of-type { padding-top:8.5rem; }
-  body.mode-deck { scroll-snap-type:y mandatory; overflow-y:scroll; height:100vh; }
-  body.mode-deck main { }
-  body.mode-report section.slide {
-    min-height:auto; padding:3.2rem var(--pad); scroll-snap-align:none;
-    border-bottom:1px solid var(--hair); max-width:1180px; margin:0 auto;
-  }
-  body.mode-report section.slide:first-of-type { padding-top:6rem; }
-  body.is-sample.mode-report section.slide:first-of-type { padding-top:8.5rem; }
-
-  .slide-inner { width:100%; max-width:1080px; margin:0 auto; }
+  body.is-sample section.slide { padding-top:7.5rem; }
+  section.slide.active { opacity:1; pointer-events:auto; transform:none; }
+  section.slide.past { transform:translateX(-26px); }
+  .slide-inner { width:100%; max-width:1000px; margin:auto; }
+  section.slide.wide .slide-inner { max-width:1120px; }
   .slide .num {
-    position:absolute; top:4.6rem; right:var(--pad);
+    position:absolute; top:5.5rem; right:var(--pad);
     font-family:var(--font-mono); font-size:.72rem; color:var(--muted);
   }
-  body.mode-report .slide .num { display:none; }
+  body.is-sample .slide .num { top:7.5rem; }
 
-  .progress {
-    position:fixed; left:0; bottom:0; height:3px; background:var(--accent);
-    z-index:50; transition:width .2s ease;
+  /* nav: bottom bar + edge click zones */
+  .deckbar {
+    position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); z-index:41;
+    display:flex; align-items:center; gap:.9rem;
+    padding:.4rem .7rem; border:1px solid var(--hair); border-radius:999px;
+    background:color-mix(in srgb,var(--surface) 88%,transparent); backdrop-filter:blur(6px);
   }
-  body.mode-report .progress { display:none; }
+  .deckbar button {
+    font:inherit; font-family:var(--font-mono); font-size:1rem; line-height:1;
+    width:1.9rem; height:1.9rem; border-radius:50%; border:1px solid var(--hair);
+    background:var(--surface); color:var(--ink); cursor:pointer;
+  }
+  .deckbar button:disabled { opacity:.35; cursor:default; }
+  .deckbar button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .dots { display:flex; gap:.4rem; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--hair); border:0;
+         padding:0; cursor:pointer; }
+  .dot.on { background:var(--accent); }
+  #counter { font-family:var(--font-mono); font-size:.76rem; color:var(--ink-2);
+             font-variant-numeric:tabular-nums; min-width:3.4em; text-align:center; }
+  .zone {
+    position:fixed; top:3.5rem; bottom:0; width:11vw; max-width:120px; z-index:38;
+    border:0; background:transparent; cursor:pointer;
+  }
+  .zone.left { left:0; } .zone.right { right:0; }
+  @media (max-width:860px){ .zone { display:none; } }
 
   /* ---- content bits ---- */
-  .grid-2 { display:grid; gap:2rem; grid-template-columns:1fr; }
-  @media (min-width:820px){ .grid-2 { grid-template-columns:1.1fr .9fr; align-items:center; } }
-
-  .stat-row { display:flex; flex-wrap:wrap; gap:2.4rem; margin:1.4rem 0; }
-  .stat { }
+  .stat-row { display:flex; flex-wrap:wrap; gap:2.4rem; margin:1.4rem 0 1rem; }
   .stat .v { font-family:var(--font-display); font-weight:800; font-size:2.6rem;
              line-height:1; color:var(--accent); font-variant-numeric:tabular-nums; }
-  .stat .k { font-family:var(--font-mono); font-size:.72rem; letter-spacing:.12em;
+  .stat .k { font-family:var(--font-mono); font-size:.7rem; letter-spacing:.12em;
              text-transform:uppercase; color:var(--muted); margin-top:.4rem; }
 
   figure { margin:0; }
   .chart-card {
     background:var(--surface); border:1px solid var(--hair); border-radius:14px;
-    padding:1.1rem 1.1rem .8rem;
+    padding:1rem 1rem .6rem;
   }
   .chart-card svg { display:block; width:100%; height:auto; overflow:visible; }
-  figcaption { font-size:.9rem; color:var(--ink-2); margin-top:.7rem; max-width:70ch; }
+  figcaption { font-size:.88rem; color:var(--ink-2); margin-top:.7rem; max-width:74ch; }
   .legend { display:flex; gap:1.2rem; flex-wrap:wrap; margin:.2rem 0 .6rem;
             font-family:var(--font-mono); font-size:.78rem; color:var(--ink-2); }
   .legend i { display:inline-block; width:14px; height:3px; border-radius:2px;
               vertical-align:middle; margin-right:.45rem; }
 
-  .tbl-wrap { overflow-x:auto; border:1px solid var(--hair); border-radius:12px; }
-  table { border-collapse:collapse; width:100%; font-size:.86rem;
+  .tbl-wrap { overflow-x:auto; border:1px solid var(--hair); border-radius:12px; margin:0 0 1rem; }
+  table { border-collapse:collapse; width:100%; font-size:.84rem;
           font-variant-numeric:tabular-nums; }
-  th,td { text-align:right; padding:.5rem .8rem; white-space:nowrap; }
+  th,td { text-align:right; padding:.45rem .8rem; white-space:nowrap; }
   th:first-child, td:first-child { text-align:left; }
-  thead th { font-family:var(--font-mono); font-size:.72rem; letter-spacing:.06em;
+  thead th { font-family:var(--font-mono); font-size:.68rem; letter-spacing:.06em;
              text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--hair); }
+  caption { text-align:left; padding:.55rem .8rem; color:var(--ink-2);
+            font-family:var(--font-mono); font-size:.72rem; letter-spacing:.04em; }
   tbody tr:nth-child(even) { background:var(--surface-2); }
   tbody td { border-bottom:1px solid var(--hair); }
   tbody tr:last-child td { border-bottom:none; }
   .t-accent { color:var(--accent); font-weight:600; }
 
-  .pill { display:inline-block; font-family:var(--font-mono); font-size:.7rem;
-          letter-spacing:.08em; text-transform:uppercase; padding:.2rem .55rem;
-          border-radius:999px; border:1px solid var(--hair); color:var(--ink-2); }
-  .pend { border-left:3px solid var(--accent); padding:.2rem 0 .2rem 1rem; margin:1.2rem 0;
-          color:var(--ink-2); }
+  .note { border-left:3px solid var(--accent); padding:.1rem 0 .1rem 1rem;
+          margin:1.1rem 0; color:var(--ink-2); max-width:66ch; }
+  .foot-cfg { font-family:var(--font-mono); font-size:.74rem; color:var(--muted);
+              margin-top:.4rem; }
 
-  .anexo { opacity:.72; }
-  .anexo .pend { border-color:var(--muted); }
-  .anexo h2::after {
-    content:"pendiente"; font-family:var(--font-mono); font-size:.62rem;
-    letter-spacing:.14em; text-transform:uppercase; vertical-align:middle;
-    margin-left:.8rem; padding:.15rem .5rem; border:1px solid var(--hair);
-    border-radius:999px; color:var(--muted);
+  ul.pcam { list-style:none; padding:0; margin:1.1rem 0 0; display:grid; gap:.85rem; }
+  ul.pcam li { padding-left:2.3rem; position:relative; color:var(--ink-2); max-width:74ch; }
+  ul.pcam li b { color:var(--ink); font-family:var(--font-display); font-weight:700; }
+  ul.pcam li::before {
+    content:attr(data-k); position:absolute; left:0; top:.05rem;
+    font-family:var(--font-mono); font-size:.85rem; color:var(--accent); font-weight:500;
   }
 
-  ul.method { list-style:none; padding:0; margin:1.2rem 0; display:grid; gap:.9rem; }
-  ul.method li { padding-left:2.4rem; position:relative; color:var(--ink-2); max-width:60ch; }
-  ul.method li b { color:var(--ink); font-family:var(--font-display); font-weight:700; }
-  ul.method li::before {
-    content:attr(data-k); position:absolute; left:0; top:.1rem;
-    font-family:var(--font-mono); font-size:.8rem; color:var(--accent); font-weight:500;
-  }
+  .cols { display:grid; gap:2rem 3rem; grid-template-columns:1fr; margin-top:1rem; }
+  @media (min-width:800px){ .cols { grid-template-columns:1fr 1fr; } }
+  .cols ul { margin:.4rem 0 0; padding-left:1.1rem; color:var(--ink-2); }
+  .cols li { margin:.5rem 0; max-width:48ch; }
+  .cols li b { color:var(--ink); }
 
   .tooltip {
     position:fixed; z-index:60; pointer-events:none; opacity:0; transition:opacity .1s;
@@ -171,205 +185,234 @@
     font-size:.72rem; padding:.4rem .55rem; border-radius:7px; white-space:pre; line-height:1.5;
   }
 
-  @media (prefers-reduced-motion:reduce){ *{transition:none!important; scroll-behavior:auto!important;} }
-  footer { padding:2.5rem var(--pad); color:var(--muted); font-family:var(--font-mono);
-           font-size:.74rem; border-top:1px solid var(--hair); max-width:1180px; margin:0 auto; }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none!important;}
+    section.slide{transform:none!important;}
+  }
 </style>
 
 <div class="topbar">
   <span class="brand"><b>CC3069</b> · Screensaver OpenMP · Bitácora de rendimiento</span>
-  <div class="controls">
-    <button class="btn" id="mode-deck" aria-pressed="true">Presentación</button>
-    <button class="btn" id="mode-report" aria-pressed="false">Informe</button>
-    <button class="btn" id="theme-toggle" aria-label="Cambiar tema">◑</button>
-  </div>
+  <button class="btn" id="theme-toggle" aria-label="Cambiar tema">◑</button>
 </div>
 <p class="sample-flag">Datos de muestra — ejecutá <code>scripts/benchmark.sh</code> y <code>python3 scripts/build_report.py</code> para reemplazarlos.</p>
-<div class="progress" id="progress"></div>
 
-<main id="deck">
+<button class="zone left" aria-label="Diapositiva anterior"></button>
+<button class="zone right" aria-label="Diapositiva siguiente"></button>
+
+<div class="deck" id="deck">
 <section class="slide"><span class="num">01</span><div class="slide-inner">
-      <p class="eyebrow">Proyecto 1 · Computación Paralela y Distribuida · UVG</p>
+      <p class="eyebrow">Proyecto 1 · Computación Paralela y Distribuida</p>
       <h1>Un screensaver de sistemas solares,<br>de 6 a un millón — con OpenMP</h1>
-      <p class="lede">Bitácora de rendimiento: speedup y eficiencia de la ruta de
-      actualización paralela frente a la secuencial, medidos sobre la misma escena
-      y semilla a distintos N.</p>
+      <p class="lede">Speedup y eficiencia de la ruta de actualización paralela
+      frente a la secuencial, medidos sobre la misma escena y semilla a distintos N.</p>
       <div class="stat-row">
-        <div class="stat"><div class="v">2.52×</div><div class="k">speedup máx · N=200,000</div></div>
-        <div class="stat"><div class="v">63%</div><div class="k">eficiencia en ese punto</div></div>
-        <div class="stat"><div class="v">4</div><div class="k">hilos OpenMP</div></div>
+        <div class="stat"><div class="v">3.28×</div><div class="k">speedup máx · N=50,000</div></div>
+        <div class="stat"><div class="v">41%</div><div class="k">eficiencia en ese punto</div></div>
+        <div class="stat"><div class="v">8</div><div class="k">hilos OpenMP</div></div>
       </div>
-      <p class="mono" style="color:var(--muted);font-size:.8rem">Generado 2026-09-02 20:56 UTC
-      · datos de muestra</p>
+      <p class="foot-cfg">Generado 2026-09-02 23:16 UTC · datos de muestra</p>
     </div></section>
 <section class="slide"><span class="num">02</span><div class="slide-inner">
       <p class="eyebrow">Método — PCAM</p>
       <h2>Qué se paralelizó y por qué</h2>
-      <ul class="method">
-        <li data-k="P"><b>Particionar.</b> El mundo es SoA (arreglos paralelos por
-        campo). Cada entidad — sol, planeta, estrella — se actualiza sola: centelleo,
-        órbita y vida son funciones puras de su propio estado y del tiempo.</li>
-        <li data-k="C"><b>Comunicar.</b> Ninguna. El bucle no escribe en el slot de
-        otra entidad ni en un acumulador compartido; <code>ecs_create/destroy</code>
-        quedan fuera de la región.</li>
-        <li data-k="A"><b>Aglomerar.</b> Un solo <code>#pragma omp parallel for
-        schedule(static,64)</code> fusiona los tres sistemas en un recorrido; trozos
-        contiguos = localidad de caché sobre los arreglos SoA.</li>
-        <li data-k="M"><b>Mapear.</b> Tope de 4 hilos (6/12 compiten con el hilo de
-        render y bajan los FPS totales). Barrera implícita al terminar; recién
-        entonces corren estelas y destrucción diferida, en serie.</li>
+      <ul class="pcam">
+        <li data-k="P"><b>Particionar.</b> La unidad de trabajo es una entidad. Cada
+        fotograma, antes de dibujar, el motor recorre las entidades del mundo —
+        aproximadamente seis por sistema solar más las estrellas de fondo — y les
+        aplica tres sistemas fusionados en un mismo paso: centelleo (brillo senoidal
+        en el tiempo), órbita (avance del ángulo y proyección de la posición sobre la
+        elipse) y vida (descuento del tiempo restante y sobre de aparición y
+        desaparición). Ese recorrido es el único trabajo que crece con N.</li>
+        <li data-k="C"><b>Comunicar.</b> No hay comunicación entre tareas. Con los
+        datos en <i>struct-of-arrays</i>, la iteración de índice <i>e</i> lee y
+        escribe únicamente las posiciones <i>e</i> de esos arreglos: nunca las de
+        otra entidad, nunca un acumulador global. Las altas y bajas de entidades,
+        que sí modifican estado compartido, no ocurren dentro del recorrido.</li>
+        <li data-k="A"><b>Aglomerar.</b> Las tres operaciones por entidad se agrupan
+        en un solo bucle paralelo con reparto estático en bloques contiguos: cada
+        hilo procesa un tramo del arreglo, lo que conserva la localidad de caché
+        sobre el layout SoA. Un único punto de sincronización: la barrera implícita
+        al cerrar la región.</li>
+        <li data-k="M"><b>Mapear.</b> Por defecto cuatro hilos; <code>--threads</code>
+        fuerza otro número, incluso más que los núcleos físicos, para medir dónde deja
+        de rendir. Con demasiados hilos el sistema operativo los intercala con el
+        hilo que dibuja y los FPS totales bajan. Tras la barrera, el hilo principal
+        reanuda en serie: aplica las bajas marcadas durante el recorrido, muestrea
+        las estelas y dibuja. Sin exclusión mutua, sin secciones críticas, sin
+        operaciones atómicas.</li>
       </ul>
-      <p class="pend">Sincronía: barrera implícita del <code>parallel for</code> +
-      patrón marcar-y-barrer (<code>C_PENDING_DESTROY</code>) para diferir los
-      borrados al hilo principal. Sin mutex, sin secciones críticas.</p>
     </div></section>
 <section class="slide"><span class="num">03</span><div class="slide-inner">
-      <p class="eyebrow">Entorno de pruebas</p>
-      <h2>Equipo y configuración</h2>
-      <div class="grid-2">
-        <div class="tbl-wrap"><table><tbody>
-          <tr><td>CPU</td><td>—</td></tr>
-          <tr><td>Núcleos</td><td>— físicos / — lógicos</td></tr>
-          <tr><td>GPU</td><td>—</td></tr>
-          <tr><td>SO</td><td>—</td></tr>
-          <tr><td>Compilador</td><td>—</td></tr>
-          <tr><td>Commit</td><td class="mono">—</td></tr>
-        </tbody></table></div>
-        <div>
-          <p><b>Escena fija</b> en todas las corridas: semilla 20260831,
-          1280×720, 500 estrellas de
-          fondo, <code>--no-vsync</code>.</p>
-          <p>Cada punto = <b>10 corridas</b> de 10&nbsp;s (tras
-          3&nbsp;s de calentamiento), 10 muestras de 1&nbsp;s por corrida. Métrica
-          principal: <code>Actualización ECS</code> ms/fotograma (campo del
-          <code>BENCHMARK_CSV</code>), aislada del render.</p>
-        </div>
-      </div>
-    </div></section>
-<section class="slide"><span class="num">04</span><div class="slide-inner">
-      <p class="eyebrow">Resultado · 1 de 4</p>
+      <p class="eyebrow">Resultado · 1 de 6</p>
       <h2>Speedup de la actualización</h2>
       <figure><div class="chart-card"><div id="c-speedup"></div></div>
         <figcaption>speedup(N) = t_secuencial / t_paralelo, sobre el tiempo medio de
-        actualización ECS (sin render). La línea punteada es el techo ideal de
-        4×. Debajo de ~1000 sistemas el mundo tiene menos de 6144
+        actualización ECS (sin render), a 8 hilos. La línea punteada es el techo
+        ideal de 8×. Debajo de ~1000 sistemas el mundo tiene menos de 6144
         entidades y la ruta paralela cae a la secuencial a propósito.</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">05</span><div class="slide-inner">
-      <p class="eyebrow">Resultado · 2 de 4</p>
+<section class="slide"><span class="num">04</span><div class="slide-inner">
+      <p class="eyebrow">Resultado · 2 de 6</p>
       <h2>Eficiencia</h2>
       <figure><div class="chart-card"><div id="c-eff"></div></div>
-        <figcaption>eficiencia(N) = speedup(N) / 4 hilos. El trabajo por
-        entidad es aritmética trivial sobre arreglos grandes — está limitado por ancho
-        de banda de memoria, no por cómputo — así que la eficiencia se estabiliza por
-        debajo del 100 %.</figcaption>
+        <figcaption>eficiencia(N) = speedup(N) / 8 hilos. El trabajo por entidad es
+        aritmética simple sobre arreglos grandes — limitado por ancho de banda de
+        memoria, no por cómputo — así que la eficiencia se estabiliza por debajo del
+        100 %.</figcaption>
+      </figure>
+    </div></section>
+<section class="slide"><span class="num">05</span><div class="slide-inner">
+      <p class="eyebrow">Resultado · 3 de 6</p>
+      <h2>Speedup vs número de hilos</h2>
+      <div class="legend" id="leg-sp-threads"></div>
+      <figure><div class="chart-card"><div id="c-speedup-threads"></div></div>
+        <figcaption>speedup con 1, 2, 4, 8, 16 hilos, una línea por N (eje de hilos
+        logarítmico). Sube con los primeros hilos y luego se aplana; pasar de los
+        núcleos físicos hacia la sobresuscripción ya no compra tiempo.</figcaption>
       </figure>
     </div></section>
 <section class="slide"><span class="num">06</span><div class="slide-inner">
-      <p class="eyebrow">Resultado · 3 de 4</p>
+      <p class="eyebrow">Resultado · 4 de 6</p>
+      <h2>Eficiencia vs número de hilos</h2>
+      <div class="legend" id="leg-eff-threads"></div>
+      <figure><div class="chart-card"><div id="c-eff-threads"></div></div>
+        <figcaption>eficiencia = speedup / hilos. Cae de forma monótona: cada hilo
+        extra aporta menos que el anterior porque el cuello es el ancho de banda de
+        memoria, compartido por todos los hilos.</figcaption>
+      </figure>
+    </div></section>
+<section class="slide"><span class="num">07</span><div class="slide-inner">
+      <p class="eyebrow">Resultado · 5 de 6</p>
       <h2>FPS totales</h2>
       <div class="legend" id="leg-fps"></div>
       <figure><div class="chart-card"><div id="c-fps"></div></div>
         <figcaption>FPS medios de la aplicación completa (eje N logarítmico). El
         render es serial y domina el tiempo de fotograma, así que el speedup de la
-        actualización casi no mueve los FPS totales — es el comportamiento esperado y
-        documentado.</figcaption>
+        actualización casi no mueve los FPS totales — comportamiento esperado.</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">07</span><div class="slide-inner">
-      <p class="eyebrow">Resultado · 4 de 4</p>
+<section class="slide"><span class="num">08</span><div class="slide-inner">
+      <p class="eyebrow">Resultado · 6 de 6</p>
       <h2>Costo de actualización ECS</h2>
       <div class="legend" id="leg-ms"></div>
       <figure><div class="chart-card"><div id="c-ms"></div></div>
         <figcaption>El número que sí mejora la paralelización: ms por fotograma del
-        recorrido centelleo+órbita+vida, secuencial vs 4 hilos
+        recorrido centelleo + órbita + vida, secuencial vs 8 hilos
         (eje N logarítmico).</figcaption>
       </figure>
     </div></section>
-<section class="slide"><span class="num">08</span><div class="slide-inner">
-      <p class="eyebrow">Anexo 3 · Bitácora</p>
+<section class="slide wide"><span class="num">09</span><div class="slide-inner">
+      <p class="eyebrow">Bitácora · resumen</p>
       <h2>Resumen por N</h2>
-      <div class="tbl-wrap"><table><thead><tr><th>N</th><th>t_seq (ms)</th><th>t_par (ms)</th><th>speedup</th><th>eficiencia</th><th>FPS seq</th><th>FPS par</th></tr></thead><tbody><tr><td>1,000</td><td>0.011</td><td>0.011</td><td class='t-accent'>1.00×</td><td>25%</td><td>760</td><td>758</td></tr><tr><td>5,000</td><td>0.062</td><td>0.048</td><td class='t-accent'>1.29×</td><td>32%</td><td>360</td><td>362</td></tr><tr><td>25,000</td><td>0.330</td><td>0.150</td><td class='t-accent'>2.20×</td><td>55%</td><td>128</td><td>130</td></tr><tr><td>100,000</td><td>1.380</td><td>0.560</td><td class='t-accent'>2.46×</td><td>62%</td><td>41</td><td>42</td></tr><tr><td>200,000</td><td>2.900</td><td>1.150</td><td class='t-accent'>2.52×</td><td>63%</td><td>21</td><td>22</td></tr></tbody></table></div>
-      <p style="margin-top:1.4rem"></p>
-      <p class="pend">Sin corridas registradas para «Corridas — secuencial». Ejecutá <code>scripts/benchmark.sh</code>.</p>
-      <p style="margin-top:1rem"></p>
-      <p class="pend">Sin corridas registradas para «Corridas — paralelo». Ejecutá <code>scripts/benchmark.sh</code>.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>N</th><th>t_seq (ms)</th><th>t_par (8h, ms)</th><th>speedup</th><th>eficiencia</th><th>FPS seq</th><th>FPS par</th></tr></thead><tbody><tr><td>1,000</td><td>0.196</td><td>0.079</td><td class='t-accent'>2.49×</td><td>31%</td><td>28</td><td>28</td></tr><tr><td>5,000</td><td>0.630</td><td>0.216</td><td class='t-accent'>2.92×</td><td>36%</td><td>12</td><td>12</td></tr><tr><td>15,000</td><td>1.550</td><td>0.493</td><td class='t-accent'>3.14×</td><td>39%</td><td>5</td><td>5</td></tr><tr><td>30,000</td><td>2.950</td><td>0.914</td><td class='t-accent'>3.23×</td><td>40%</td><td>3</td><td>3</td></tr><tr><td>50,000</td><td>4.850</td><td>1.477</td><td class='t-accent'>3.28×</td><td>41%</td><td>2</td><td>2</td></tr></tbody></table></div>
+      <p class="foot-cfg">Escena fija: semilla 20260831,
+      1280×720, 500 estrellas,
+      <code>--no-vsync</code> · 10 corridas por (N, hilos) ·
+      métrica = Actualización ECS ms/fotograma, aislada del render.</p>
     </div></section>
-<section class="slide"><span class="num">09</span><div class="slide-inner">
+<section class="slide wide"><span class="num">10</span><div class="slide-inner">
+      <p class="eyebrow">Bitácora · hilos</p>
+      <h2>Speedup por N y número de hilos</h2>
+      <div class="tbl-wrap"><table><caption>speedup por N y número de hilos</caption><thead><tr><th>N</th><th>1h</th><th>2h</th><th>4h</th><th>8h</th><th>16h</th></tr></thead><tbody><tr><td>1,000</td><td class='t-accent'>0.97×</td><td class='t-accent'>1.47×</td><td class='t-accent'>2.04×</td><td class='t-accent'>2.49×</td><td class='t-accent'>2.30×</td></tr><tr><td>5,000</td><td class='t-accent'>0.97×</td><td class='t-accent'>1.63×</td><td class='t-accent'>2.35×</td><td class='t-accent'>2.92×</td><td class='t-accent'>2.72×</td></tr><tr><td>15,000</td><td class='t-accent'>0.97×</td><td class='t-accent'>1.70×</td><td class='t-accent'>2.51×</td><td class='t-accent'>3.14×</td><td class='t-accent'>2.95×</td></tr><tr><td>30,000</td><td class='t-accent'>0.97×</td><td class='t-accent'>1.72×</td><td class='t-accent'>2.56×</td><td class='t-accent'>3.23×</td><td class='t-accent'>3.03×</td></tr><tr><td>50,000</td><td class='t-accent'>0.97×</td><td class='t-accent'>1.74×</td><td class='t-accent'>2.60×</td><td class='t-accent'>3.28×</td><td class='t-accent'>3.09×</td></tr></tbody></table></div>
+      <p class="foot-cfg">Cada celda es la mediana de 10 corridas.
+      <code>--threads T</code> fuerza exactamente T hilos.</p>
+    </div></section>
+<section class="slide wide"><span class="num">11</span><div class="slide-inner">
+      <p class="eyebrow">Bitácora · corridas</p>
+      <h2>Mediciones crudas</h2>
+      <p class="note">Sin corridas para «Corridas — secuencial» todavía. Ejecutá <code>scripts/benchmark.sh</code>.</p>
+      <p class="note">Sin corridas para «Corridas — paralelo» todavía. Ejecutá <code>scripts/benchmark.sh</code>.</p>
+    </div></section>
+<section class="slide"><span class="num">12</span><div class="slide-inner">
       <p class="eyebrow">Escalado</p>
       <h2>N = 1 000 000</h2>
       <p>El mundo se dimensiona en tiempo de ejecución a la N pedida (World,
       SolarSystems y TrailBuffer en heap). Un millón de sistemas ≈ 6 millones de
-      entidades y ~0,7 GB. Renderiza a &lt;1 FPS — «corre aunque se vea saturado»,
-      que era el objetivo. El <code>--benchmark</code> no aplica a ese N (nunca junta
-      10 muestras de 1&nbsp;s); se mide con <code>--frames</code>.</p>
-      <p class="pend">Sin dato de N=1 000 000 todavía. Ejecutá <code>scripts/benchmark.sh --ceiling 1000000</code> en cada modo.</p>
+      entidades y ~0,7 GB de memoria. Renderiza a menos de 1 FPS — «corre aunque se
+      vea saturado», que era el objetivo. El <code>--benchmark</code> no aplica a ese
+      N (nunca junta 10 muestras de 1&nbsp;s); se mide con <code>--frames</code>.</p>
+      <p class="note">Sin dato de N=1 000 000 todavía. Ejecutá <code>scripts/benchmark.sh --ceiling 1000000</code> en cada modo.</p>
     </div></section>
-<section class="slide"><span class="num">10</span><div class="slide-inner">
+<section class="slide"><span class="num">13</span><div class="slide-inner">
       <p class="eyebrow">Conclusiones</p>
       <h2>Lo que muestran los números</h2>
-      <ul class="method">
-        <li data-k="1"><b>La actualización escala.</b> 2.52× a
-        N=200,000 con 4 hilos, sin mecanismos de exclusión mutua:
-        el patrón por-entidad sobre SoA era genuinamente paralelo.</li>
-        <li data-k="2"><b>Los FPS no.</b> El render serial es el cuello de botella;
-        paralelizarlo requeriría un backend de render por lotes, fuera de alcance.</li>
-        <li data-k="3"><b>El límite es la memoria.</b> Eficiencia &lt;100 % porque el
-        bucle mueve más bytes de los que calcula.</li>
+      <ul class="pcam">
+        <li data-k="1"><b>La actualización escala.</b> 3.28× a
+        N=50,000 con 8 hilos, sin mecanismos de exclusión mutua: el patrón
+        por-entidad sobre SoA era paralelizable de raíz.</li>
+        <li data-k="2"><b>Los hilos rinden decreciente.</b> El speedup sube con los
+        primeros hilos y se aplana cerca de los núcleos físicos; la sobresuscripción
+        no ayuda. La eficiencia baja de forma monótona.</li>
+        <li data-k="3"><b>Los FPS casi no se mueven.</b> El render corre en un solo
+        hilo y domina el tiempo de fotograma, así que acelerar la actualización no se
+        traslada a los FPS totales.</li>
+        <li data-k="4"><b>El límite es la memoria.</b> El bucle lee y escribe más
+        bytes de los que calcula: el ancho de banda compartido, no el número de
+        hilos, es lo que topa la eficiencia por debajo del 100 %.</li>
       </ul>
-      <p class="pend">Próxima iteración posible: paralelizar <code>sys_drift</code> y
-      la siembra de estelas; medir con 2 y 3 hilos para la curva de eficiencia por
-      número de hilos que pide el informe.</p>
     </div></section>
-<section class="slide anexo"><span class="num">11</span><div class="slide-inner">
-      <p class="eyebrow">Anexo 1</p>
-      <h2>Diagrama de flujo</h2>
-      <p class="pend">Diagrama de flujo del programa: captura de argumentos →
-      programación defensiva → construcción de escena → bucle principal (spawn ·
-      drift · <span class="mono">región paralela</span> · barrera · trails ·
-      destroy · render) → resumen. Se dibuja a partir del flujo de
-      <code>src/main.c</code>.</p>
+<section class="slide wide"><span class="num">14</span><div class="slide-inner">
+      <p class="eyebrow">Trabajo futuro</p>
+      <h2>Cómo subir el speedup y la eficiencia</h2>
+      <div class="cols">
+        <div>
+          <h3>Más speedup</h3>
+          <ul>
+            <li><b>Sacar el render del hilo único.</b> Construir los vértices de todos
+            los cuerpos en paralelo y subirlos como una sola malla dinámica — ya se
+            hace así con las estelas. Es el cambio que haría que los FPS totales sigan
+            al speedup de la actualización.</li>
+            <li><b>Paralelizar <code>sys_drift</code> y la siembra de estelas.</b> Hoy
+            corren en serie «por ser recorridos chicos»; con N alto ya no lo son, y
+            ambos son por-sistema e independientes.</li>
+            <li><b>Reducir el trabajo base, no sólo repartirlo.</b> Reemplazar las
+            llamadas a seno, coseno y potencia por tabla de senos o aproximaciones
+            polinómicas recorta el tiempo de las dos versiones.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Más eficiencia</h3>
+          <ul>
+            <li><b>Compactar los arreglos calientes.</b> El recorrido salta entre una
+            decena de arreglos SoA distintos; agrupar los campos que se leen juntos
+            (o un arreglo intercalado sólo para el bucle caliente) sube la utilidad
+            por línea de caché y afloja el cuello de ancho de banda.</li>
+            <li><b>Vectorizar dentro de cada hilo.</b> El bucle es aritmética sin
+            ramas dependientes de datos: candidato directo a SIMD
+            (<code>#pragma omp simd</code>, <code>-O3 -march=native</code>) combinado
+            con OpenMP entre hilos.</li>
+            <li><b>Afinar el reparto.</b> Probar reparto estático sin tamaño de bloque,
+            <i>guided</i> y bloques más grandes para amortizar el arranque de la
+            región paralela, que a N medio pesa relativamente más.</li>
+            <li><b>Fijar los hilos a núcleos</b> (<code>OMP_PROC_BIND</code>,
+            <code>OMP_PLACES</code>) para que el planificador no los mueva y no
+            compitan con el hilo de render.</li>
+          </ul>
+        </div>
+      </div>
     </div></section>
-<section class="slide anexo"><span class="num">12</span><div class="slide-inner">
-      <p class="eyebrow">Anexo 2</p>
-      <h2>Catálogo de funciones</h2>
-      <p class="pend">Entradas / salidas / propósito de cada función pública de
-      <code>ecs.h</code>, <code>spawn.h</code>, <code>systems.h</code>,
-      <code>deathstar.h</code>, <code>rng.h</code>. Se extrae de los encabezados.</p>
-    </div></section>
-<section class="slide anexo"><span class="num">13</span><div class="slide-inner">
-      <p class="eyebrow">Anexo 3</p>
-      <h2>Bitácora completa</h2>
-      <p class="pend">Tabla cruda de las ≥10 mediciones por configuración con captura
-      de pantalla de la terminal. El resumen y las corridas ya están en la
-      diapositiva 08; falta adjuntar las capturas.</p>
-    </div></section>
-</main>
+</div>
+
+<nav class="deckbar" aria-label="Navegación de diapositivas">
+  <button id="nav-prev" aria-label="Anterior">‹</button>
+  <span id="counter"></span>
+  <span class="dots" id="dots"></span>
+  <button id="nav-next" aria-label="Siguiente">›</button>
+</nav>
 
 <div class="tooltip" id="tip"></div>
 
 <script>
-const DATA = {"points": [{"n": 1000, "seq_ms": 0.011, "par_ms": 0.011, "seq_ms_sd": 0.001, "par_ms_sd": 0.001, "seq_fps": 760.0, "par_fps": 758.0, "speedup": 1.0, "efficiency": 0.25}, {"n": 5000, "seq_ms": 0.062, "par_ms": 0.048, "seq_ms_sd": 0.003, "par_ms_sd": 0.003, "seq_fps": 360.0, "par_fps": 362.0, "speedup": 1.2916666666666667, "efficiency": 0.3229166666666667}, {"n": 25000, "seq_ms": 0.33, "par_ms": 0.15, "seq_ms_sd": 0.012, "par_ms_sd": 0.008, "seq_fps": 128.0, "par_fps": 130.0, "speedup": 2.2, "efficiency": 0.55}, {"n": 100000, "seq_ms": 1.38, "par_ms": 0.56, "seq_ms_sd": 0.04, "par_ms_sd": 0.02, "seq_fps": 41.0, "par_fps": 42.0, "speedup": 2.464285714285714, "efficiency": 0.6160714285714285}, {"n": 200000, "seq_ms": 2.9, "par_ms": 1.15, "seq_ms_sd": 0.09, "par_ms_sd": 0.045, "seq_fps": 21.0, "par_fps": 22.0, "speedup": 2.5217391304347827, "efficiency": 0.6304347826086957}], "threads": 4, "is_sample": true};
+const DATA = {"points": [{"n": 1000, "seq_ms": 0.196, "par_ms": 0.078836, "seq_fps": 28.0, "par_fps": 27.72, "speedup": 2.4861738292150792, "efficiency": 0.3107717286518849}, {"n": 5000, "seq_ms": 0.63, "par_ms": 0.215806, "seq_fps": 12.5, "par_fps": 12.375, "speedup": 2.9192886203349304, "efficiency": 0.3649110775418663}, {"n": 15000, "seq_ms": 1.55, "par_ms": 0.493113, "seq_fps": 5.4, "par_fps": 5.346, "speedup": 3.1432957557395564, "efficiency": 0.39291196946744456}, {"n": 30000, "seq_ms": 2.95, "par_ms": 0.9145, "seq_fps": 3.0, "par_fps": 2.97, "speedup": 3.2258064516129035, "efficiency": 0.40322580645161293}, {"n": 50000, "seq_ms": 4.85, "par_ms": 1.477189, "seq_fps": 1.8, "par_fps": 1.782, "speedup": 3.2832630083218866, "efficiency": 0.4104078760402358}], "threads": 8, "thread_counts": [1, 2, 4, 8, 16], "vs_threads": [{"n": 1000, "points": [{"t": 1, "par_ms": 0.20188, "speedup": 0.970873786407767, "efficiency": 0.970873786407767}, {"t": 2, "par_ms": 0.133006, "speedup": 1.4736177315309082, "efficiency": 0.7368088657654541}, {"t": 4, "par_ms": 0.095932, "speedup": 2.043113872326231, "efficiency": 0.5107784680815578}, {"t": 8, "par_ms": 0.078836, "speedup": 2.4861738292150792, "efficiency": 0.3107717286518849}, {"t": 16, "par_ms": 0.085297, "speedup": 2.2978533828856818, "efficiency": 0.1436158364303551}]}, {"n": 5000, "points": [{"t": 1, "par_ms": 0.6489, "speedup": 0.970873786407767, "efficiency": 0.970873786407767}, {"t": 2, "par_ms": 0.387324, "speedup": 1.6265452179570592, "efficiency": 0.8132726089785296}, {"t": 4, "par_ms": 0.267813, "speedup": 2.352387673488591, "efficiency": 0.5880969183721477}, {"t": 8, "par_ms": 0.215806, "speedup": 2.9192886203349304, "efficiency": 0.3649110775418663}, {"t": 16, "par_ms": 0.231289, "speedup": 2.723864948181712, "efficiency": 0.170241559261357}]}, {"n": 15000, "points": [{"t": 1, "par_ms": 1.5965, "speedup": 0.970873786407767, "efficiency": 0.970873786407767}, {"t": 2, "par_ms": 0.912485, "speedup": 1.6986580601324954, "efficiency": 0.8493290300662477}, {"t": 4, "par_ms": 0.618101, "speedup": 2.5076807835612627, "efficiency": 0.6269201958903157}, {"t": 8, "par_ms": 0.493113, "speedup": 3.1432957557395564, "efficiency": 0.39291196946744456}, {"t": 16, "par_ms": 0.525886, "speedup": 2.9474068524356993, "efficiency": 0.1842129282772312}]}, {"n": 30000, "points": [{"t": 1, "par_ms": 3.0385, "speedup": 0.970873786407767, "efficiency": 0.970873786407767}, {"t": 2, "par_ms": 1.711, "speedup": 1.7241379310344829, "efficiency": 0.8620689655172414}, {"t": 4, "par_ms": 1.1505, "speedup": 2.564102564102564, "efficiency": 0.641025641025641}, {"t": 8, "par_ms": 0.9145, "speedup": 3.2258064516129035, "efficiency": 0.40322580645161293}, {"t": 16, "par_ms": 0.9735, "speedup": 3.0303030303030303, "efficiency": 0.1893939393939394}]}, {"n": 50000, "points": [{"t": 1, "par_ms": 4.9955, "speedup": 0.970873786407767, "efficiency": 0.970873786407767}, {"t": 2, "par_ms": 2.78487, "speedup": 1.7415534656913965, "efficiency": 0.8707767328456982}, {"t": 4, "par_ms": 1.863127, "speedup": 2.603150509868624, "efficiency": 0.650787627467156}, {"t": 8, "par_ms": 1.477189, "speedup": 3.2832630083218866, "efficiency": 0.4104078760402358}, {"t": 16, "par_ms": 1.570491, "speedup": 3.0882061724645347, "efficiency": 0.19301288577903342}]}], "is_sample": true};
 </script>
 <script>
-/* ---------- theme + mode ---------- */
+/* ---------- theme ---------- */
 (function(){
-  const root=document.documentElement, body=document.body;
-  const dk=document.getElementById('mode-deck'), rp=document.getElementById('mode-report');
-  function setMode(m){
-    body.classList.toggle('mode-deck',m==='deck');
-    body.classList.toggle('mode-report',m==='report');
-    dk.setAttribute('aria-pressed',m==='deck'); rp.setAttribute('aria-pressed',m==='report');
-    try{localStorage.setItem('bm-mode',m);}catch(e){}
-    if(m==='deck') window.scrollTo(0,0);
-  }
-  dk.onclick=()=>setMode('deck'); rp.onclick=()=>setMode('report');
-  const q=new URLSearchParams(location.search).get('view');
-  setMode(q==='report'||q==='deck' ? q :
-    (()=>{try{return localStorage.getItem('bm-mode')||'deck';}catch(e){return 'deck';}})());
-
+  const root=document.documentElement;
   const tt=document.getElementById('theme-toggle');
+  try{const s=localStorage.getItem('bm-theme'); if(s) root.setAttribute('data-theme',s);}catch(e){}
   tt.onclick=()=>{
     const cur=root.getAttribute('data-theme');
     const next=cur==='dark'?'light':cur==='light'?null:(matchMedia('(prefers-color-scheme: dark)').matches?'light':'dark');
@@ -377,26 +420,49 @@ const DATA = {"points": [{"n": 1000, "seq_ms": 0.011, "par_ms": 0.011, "seq_ms_s
     try{localStorage.setItem('bm-theme',next||'');}catch(e){}
     redrawAll();
   };
-  try{const s=localStorage.getItem('bm-theme'); if(s) root.setAttribute('data-theme',s);}catch(e){}
+})();
 
-  /* deck keyboard nav */
-  const slides=()=>[...document.querySelectorAll('section.slide')];
-  function go(dir){
-    if(!body.classList.contains('mode-deck')) return;
-    const y=window.scrollY, arr=slides();
-    let i=arr.findIndex(s=>s.offsetTop> y+10);
-    if(dir>0){ i=i<0?arr.length-1:i; } else { i=arr.findIndex(s=>s.offsetTop>=y-10)-1; if(i<0)i=0; }
-    arr[Math.max(0,Math.min(arr.length-1,i))].scrollIntoView();
-  }
-  addEventListener('keydown',e=>{
-    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(1);}
-    if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(-1);}
+/* ---------- deck navigation ---------- */
+(function(){
+  const slides=[...document.querySelectorAll('section.slide')];
+  const n=slides.length;
+  const dotsWrap=document.getElementById('dots');
+  const counter=document.getElementById('counter');
+  const prev=document.getElementById('nav-prev'), next=document.getElementById('nav-next');
+  slides.forEach((_,i)=>{
+    const b=document.createElement('button');
+    b.className='dot'; b.setAttribute('aria-label','Ir a diapositiva '+(i+1));
+    b.onclick=()=>show(i); dotsWrap.appendChild(b);
   });
-  const prog=document.getElementById('progress');
-  addEventListener('scroll',()=>{
-    const h=document.documentElement.scrollHeight-innerHeight;
-    prog.style.width=(h>0?(scrollY/h*100):0)+'%';
-  },{passive:true});
+  const dots=[...dotsWrap.children];
+  let cur=-1;
+  function show(i){
+    i=Math.max(0,Math.min(n-1,i));
+    if(i===cur) return;
+    cur=i;
+    slides.forEach((s,k)=>{
+      s.classList.toggle('active',k===i);
+      s.classList.toggle('past',k<i);
+    });
+    dots.forEach((d,k)=>d.classList.toggle('on',k===i));
+    counter.textContent=(i+1)+' / '+n;
+    prev.disabled=i===0; next.disabled=i===n-1;
+    history.replaceState(null,'','#'+(i+1));
+    slides[i].scrollTop=0;
+  }
+  window.__deckShow=show;
+  prev.onclick=()=>show(cur-1); next.onclick=()=>show(cur+1);
+  document.querySelector('.zone.left').onclick=()=>show(cur-1);
+  document.querySelector('.zone.right').onclick=()=>show(cur+1);
+  addEventListener('keydown',e=>{
+    if(e.target.matches('input,textarea')) return;
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();show(cur+1);}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();show(cur-1);}
+    else if(e.key==='Home'){e.preventDefault();show(0);}
+    else if(e.key==='End'){e.preventDefault();show(n-1);}
+  });
+  const h=parseInt((location.hash||'').slice(1),10);
+  show(Number.isFinite(h)&&h>=1?h-1:0);
 })();
 
 /* ---------- charting (inline SVG) ---------- */
@@ -471,13 +537,15 @@ function lineChart(mount, opts){
       c.addEventListener('mouseleave',hideTip);
       svg.appendChild(c);
     });
-    // direct label at end, nudged apart if two series' endpoints collide
-    const lp=s.pts[s.pts.length-1];
-    let y=fy(lp[1])+4;
-    for(const prev of endYs) if(Math.abs(prev-y)<13) y = prev<y ? y+13 : y-13;
-    endYs.push(y);
-    const lab=el('text',{x:fx(lp[0])+8,y,fill:col,'font-size':12,'font-weight':600,'font-family':cssvar('--font-mono')});
-    lab.textContent=s.name; svg.appendChild(lab);
+    // direct label at end — solo con <=3 series (con mas, la leyenda basta)
+    if(opts.series.length<=3){
+      const lp=s.pts[s.pts.length-1];
+      let y=fy(lp[1])+4;
+      for(const prev of endYs) if(Math.abs(prev-y)<13) y = prev<y ? y+13 : y-13;
+      endYs.push(y);
+      const lab=el('text',{x:fx(lp[0])+8,y,fill:col,'font-size':12,'font-weight':600,'font-family':cssvar('--font-mono')});
+      lab.textContent=s.name; svg.appendChild(lab);
+    }
   });
 
   mount.innerHTML=''; mount.appendChild(svg);
@@ -489,27 +557,47 @@ function legend(el, items){
 
 /* ---------- build charts ---------- */
 const P = DATA.points;
+const NCOLORS=['--seq','--accent','--s3','--s4','--s5'];
+function nlabel(n){ return n>=1000 ? (n/1000)+'k' : ''+n; }
+
 function draw(){
-  if(!P.length) return;
-  const nmax=P.map(p=>p.n);
-  const speedup={mount:'c-speedup', xLog:true, series:[{name:'speedup', color:'--accent', pts:P.map(p=>[p.n,p.speedup])}],
-    yLabel:'t_seq / t_par', yMin:0, ref:DATA.threads, refLabel:DATA.threads+'× (ideal)',
-    tipFmt:v=>v.toFixed(2)+'×', yFmt:v=>v.toFixed(1)+'×', title:'Speedup vs N'};
-  const eff={mount:'c-eff', xLog:true, series:[{name:'eficiencia', color:'--accent', pts:P.map(p=>[p.n,p.efficiency*100])}],
-    yLabel:'eficiencia %', yMin:0, ref:100, refLabel:'100%',
-    tipFmt:v=>v.toFixed(0)+'%', yFmt:v=>v.toFixed(0)+'%', title:'Eficiencia vs N'};
-  const fps={mount:'c-fps', xLog:true, series:[
-      {name:'secuencial', color:'--seq', pts:P.map(p=>[p.n,p.seq_fps])},
-      {name:'paralelo', color:'--accent', pts:P.map(p=>[p.n,p.par_fps])}],
-    yLabel:'FPS medio', yMin:0, yFmt:v=>Math.round(v).toLocaleString(),
-    tipFmt:v=>v.toFixed(0)+' fps', title:'FPS totales vs N'};
-  const ms={mount:'c-ms', xLog:true, series:[
-      {name:'secuencial', color:'--seq', pts:P.map(p=>[p.n,p.seq_ms])},
-      {name:'paralelo', color:'--accent', pts:P.map(p=>[p.n,p.par_ms])}],
-    yLabel:'ms / fotograma', yMin:0, tipFmt:v=>v.toFixed(3)+' ms', title:'Costo de actualización ECS vs N'};
-  [speedup,eff,fps,ms].forEach(o=>{ const el=document.getElementById(o.mount); if(el) lineChart(el,o); });
-  const lf=document.getElementById('leg-fps'); if(lf) legend(lf,[{color:'--seq',label:'secuencial (1 hilo)'},{color:'--accent',label:'paralelo ('+DATA.threads+' hilos)'}]);
-  const lm=document.getElementById('leg-ms'); if(lm) legend(lm,[{color:'--seq',label:'secuencial (1 hilo)'},{color:'--accent',label:'paralelo ('+DATA.threads+' hilos)'}]);
+  if(P.length){
+    const th=DATA.threads;
+    const speedup={mount:'c-speedup', xLog:true, series:[{name:'speedup', color:'--accent', pts:P.map(p=>[p.n,p.speedup])}],
+      yLabel:'t_seq / t_par', yMin:0, ref:th, refLabel:th+'× (ideal)',
+      tipFmt:v=>v.toFixed(2)+'×', yFmt:v=>v.toFixed(1)+'×'};
+    const eff={mount:'c-eff', xLog:true, series:[{name:'eficiencia', color:'--accent', pts:P.map(p=>[p.n,p.efficiency*100])}],
+      yLabel:'eficiencia %', yMin:0, ref:100, refLabel:'100%',
+      tipFmt:v=>v.toFixed(0)+'%', yFmt:v=>v.toFixed(0)+'%'};
+    const fps={mount:'c-fps', xLog:true, series:[
+        {name:'secuencial', color:'--seq', pts:P.map(p=>[p.n,p.seq_fps])},
+        {name:'paralelo', color:'--accent', pts:P.map(p=>[p.n,p.par_fps])}],
+      yLabel:'FPS medio', yMin:0, yFmt:v=>Math.round(v).toLocaleString(),
+      tipFmt:v=>v.toFixed(0)+' fps'};
+    const ms={mount:'c-ms', xLog:true, series:[
+        {name:'secuencial', color:'--seq', pts:P.map(p=>[p.n,p.seq_ms])},
+        {name:'paralelo', color:'--accent', pts:P.map(p=>[p.n,p.par_ms])}],
+      yLabel:'ms / fotograma', yMin:0, tipFmt:v=>v.toFixed(3)+' ms'};
+    [speedup,eff,fps,ms].forEach(o=>{ const el=document.getElementById(o.mount); if(el) lineChart(el,o); });
+    const lf=document.getElementById('leg-fps'); if(lf) legend(lf,[{color:'--seq',label:'secuencial (1 hilo)'},{color:'--accent',label:'paralelo ('+th+' hilos)'}]);
+    const lm=document.getElementById('leg-ms'); if(lm) legend(lm,[{color:'--seq',label:'secuencial (1 hilo)'},{color:'--accent',label:'paralelo ('+th+' hilos)'}]);
+  }
+
+  const VT=DATA.vs_threads||[];
+  if(VT.length){
+    const mkSeries = (key,mul)=> VT.map((row,i)=>({
+      name:'N='+nlabel(row.n), color:NCOLORS[i%NCOLORS.length],
+      pts:row.points.map(p=>[p.t, key(p)*(mul||1)])
+    }));
+    const spT={mount:'c-speedup-threads', xLog:true, xLabel:'hilos', series:mkSeries(p=>p.speedup),
+      yLabel:'t_seq / t_par', yMin:0, tipFmt:v=>v.toFixed(2)+'×', yFmt:v=>v.toFixed(1)+'×'};
+    const efT={mount:'c-eff-threads', xLog:true, xLabel:'hilos', series:mkSeries(p=>p.efficiency,100),
+      yLabel:'eficiencia %', yMin:0, ref:100, refLabel:'100%',
+      tipFmt:v=>v.toFixed(0)+'%', yFmt:v=>v.toFixed(0)+'%'};
+    [spT,efT].forEach(o=>{ const el=document.getElementById(o.mount); if(el) lineChart(el,o); });
+    const items=VT.map((row,i)=>({color:NCOLORS[i%NCOLORS.length], label:'N='+nlabel(row.n)}));
+    ['leg-sp-threads','leg-eff-threads'].forEach(id=>{ const el=document.getElementById(id); if(el) legend(el,items); });
+  }
 }
 function redrawAll(){ requestAnimationFrame(draw); }
 draw();

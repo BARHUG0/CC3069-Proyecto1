@@ -122,8 +122,8 @@ if [ "${1:-}" = "--ceiling" ]; then
           "$MODE_FLAG" --frames 5 --no-vsync 2>&1 || true)"
   fi
   echo "Ceiling: N=$N version=$VERSION hilos=$thr"
-  ent="$(printf '%s\n' "$out" | awk -F'[ :]+' '/Entidades/{print $2; exit}')"
-  ums="$(printf '%s\n' "$out" | awk -F'[ :]+' '/Actualizacion ECS/{print $4; exit}')"
+  ent="$(printf '%s\n' "$out" | sed -n 's/Entidades *: \([0-9]*\) vivas.*/\1/p' | head -1)"
+  ums="$(printf '%s\n' "$out" | sed -n 's/Actualizacion ECS *: \([0-9.]*\) ms.*/\1/p' | head -1)"
   fps="$(printf '%s\n' "$out" | sed -n 's/.*(\([0-9.]*\) FPS medio).*/\1/p' | head -1)"
   fr="$(printf '%s\n'  "$out" | sed -n 's/Fotogramas *: \([0-9]*\) en.*/\1/p' | head -1)"
   sec="$(printf '%s\n' "$out" | sed -n 's/Fotogramas *: [0-9]* en \([0-9.]*\) s.*/\1/p' | head -1)"

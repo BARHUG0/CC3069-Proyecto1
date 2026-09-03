@@ -1,0 +1,4 @@
+Version,Threads,Systems,Stars,Width,Height,Seed,Runs,MeanFps,MedianFps,WorstOneSecondFps,StandardDeviationFps,MeanUpdateMs,MedianUpdateMs,StandardDeviationUpdateMs
+sequential,1,1000,500,1280,720,20260831,10,55.407,55.328,52.844,0.379,0.086185,0.084593,0.004592
+sequential,1,5000,500,1280,720,20260831,10,12.637,12.663,11.415,0.074,0.460645,0.461145,0.005550
+sequential,1,15000,500,1280,720,20260831,10,5.457,5.469,5.088,0.041,1.392436,1.390438,0.011204

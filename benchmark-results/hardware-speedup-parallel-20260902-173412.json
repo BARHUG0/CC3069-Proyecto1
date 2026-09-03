@@ -1,0 +1,17 @@
+{
+  "Commit": "3e4924414c0d3387fc2d81232c7a1a1e34f9ca5a",
+  "DirtyWorkingTree": true,
+  "OperatingSystem": "macOS 26.6.2",
+  "Gcc": "Homebrew clang version 22.1.8",
+  "Processors": [
+    {
+      "Name": "Apple M5 Pro",
+      "PhysicalCores": 15,
+      "LogicalProcessors": 15,
+      "MaxClockMHz": 0
+    }
+  ],
+  "Graphics": [
+    { "Name": "Apple M5 Pro", "CurrentResolution": "3024 x 1964 Retina" }
+  ]
+}
